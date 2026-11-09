@@ -670,6 +670,9 @@
             <p style="font-size:12.5px;color:var(--txt2);margin-top:4px">
               Yalnızca yöneticiye özel: Tüm sistem verilerini (finans, yatırım, ürün ve sabit ödemeler) tek tıkla JSON olarak yedekleyebilir veya geri yükleyebilirsiniz.
             </p>
+            <div id="admLastBackupDate" style="display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:5px 12px;background:rgba(255,255,255,0.04);border:1px solid var(--bdr);border-radius:8px;font-size:12px;color:var(--txt2)">
+              🕒 Son Yedekleme: <span style="color:var(--warn)">Henüz yedek alınmadı</span>
+            </div>
           </div>
           <div style="display:flex;gap:10px;flex-wrap:wrap">
             <button class="btn-pri" onclick="exportAppData()" style="width:auto;padding:10px 20px;background:linear-gradient(135deg,var(--ok),#059669)">
@@ -718,8 +721,11 @@
       <div style="font-size:14px;font-weight:700;color:var(--txt);margin-bottom:4px">
         Verilerin güvenliği açısından verileri yedeklemek ister misiniz?
       </div>
-      <div style="font-size:12px;color:var(--txt2);line-height:1.5">
+      <div style="font-size:12px;color:var(--txt2);line-height:1.5;margin-bottom:10px">
         Sistem yöneticisi olarak oturum açtınız. Olası tarayıcı veri kayıplarını önlemek ve tüm kayıtlarınızı güvenceye almak için sistem verilerinizi şimdi JSON olarak indirebilirsiniz.
+      </div>
+      <div id="adminPromptLastBackup" style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;background:rgba(0,0,0,0.25);border:1px solid rgba(124,106,247,0.3);border-radius:8px;font-size:11.5px;color:var(--txt2)">
+        🕒 Son Alınan Yedek: <span style="color:var(--warn)">Henüz yedek alınmadı</span>
       </div>
     </div>
     <div style="display:flex;flex-direction:column;gap:10px">
@@ -1651,6 +1657,7 @@ function checkAuth() {
 
 function renderAdminDashboard() {
   loadUsers();
+  updateAdminBackupStatus();
   const usersWrap = document.getElementById('admUsersTableWrap');
   const logsWrap = document.getElementById('admLogsTableWrap');
   const totalUsersEl = document.getElementById('admTotalUsers');
@@ -5229,7 +5236,52 @@ function delTrans(id) {
 
 
 
+function formatBackupTimestamp(isoStr) {
+  if (!isoStr) return 'Henüz yedek alınmadı';
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return 'Henüz yedek alınmadı';
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    const hours = String(d.getHours()).padStart(2, '0');
+    const mins = String(d.getMinutes()).padStart(2, '0');
+    return `${day}.${month}.${year} ${hours}:${mins}`;
+  } catch(e) {
+    return 'Henüz yedek alınmadı';
+  }
+}
+
+function updateAdminBackupStatus() {
+  let lastBackup = null;
+  try {
+    lastBackup = localStorage.getItem('mt_last_backup_time');
+  } catch(e) {}
+  const formatted = formatBackupTimestamp(lastBackup);
+
+  const labelEl = document.getElementById('admLastBackupDate');
+  if (labelEl) {
+    if (lastBackup) {
+      labelEl.innerHTML = `🕒 Son Yedekleme: <strong style="color:var(--ok)">${formatted}</strong>`;
+    } else {
+      labelEl.innerHTML = `🕒 Son Yedekleme: <span style="color:var(--warn)">Henüz yedek alınmadı</span>`;
+    }
+  }
+
+  const promptLabelEl = document.getElementById('adminPromptLastBackup');
+  if (promptLabelEl) {
+    if (lastBackup) {
+      promptLabelEl.innerHTML = `🕒 Son Alınan Yedek: <strong style="color:var(--ok);font-size:12px">${formatted}</strong>`;
+    } else {
+      promptLabelEl.innerHTML = `🕒 Son Alınan Yedek: <strong style="color:var(--warn);font-size:12px">Henüz hiç yedek alınmadı ⚠️</strong>`;
+    }
+  }
+}
+
 function showAdminBackupPrompt() {
+  const activeUser = localStorage.getItem(AUTH_KEY);
+  if (!activeUser || activeUser.toLowerCase() !== 'admin') return;
+  updateAdminBackupStatus();
   const ov = document.getElementById('adminBackupPromptOv');
   if (ov) ov.classList.add('open');
 }
@@ -5240,6 +5292,11 @@ function closeAdminBackupPrompt() {
 }
 
 function handleAdminQuickBackup() {
+  const activeUser = localStorage.getItem(AUTH_KEY);
+  if (!activeUser || activeUser.toLowerCase() !== 'admin') {
+    toast('Bu işlem yalnızca yönetici (admin) tarafından yapılabilir.', 'err');
+    return;
+  }
   exportAppData();
   closeAdminBackupPrompt();
 }
@@ -5251,9 +5308,10 @@ function exportAppData() {
     return;
   }
   load(); loadFinance(); loadMetropol(); loadInvest(); loadBills();
+  const nowIso = new Date().toISOString();
   const backup = {
     version: '2.3.0',
-    exportDate: new Date().toISOString(),
+    exportDate: nowIso,
     products: products || [],
     finance: financeData || [],
     investments: investData || [],
@@ -5264,9 +5322,13 @@ function exportAppData() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `mytakip_yedek_${new Date().toISOString().split('T')[0]}.json`;
+  a.download = `mytakip_yedek_${nowIso.split('T')[0]}.json`;
   a.click();
   URL.revokeObjectURL(url);
+  try {
+    localStorage.setItem('mt_last_backup_time', nowIso);
+  } catch(e) {}
+  updateAdminBackupStatus();
   toast('✓ Tüm veriler başarıyla JSON olarak indirildi!','ok');
 }
 
@@ -5303,6 +5365,14 @@ function importAppData(e) {
         billsData = data.bills;
         saveBills();
       }
+      try {
+        if (data.exportDate) {
+          localStorage.setItem('mt_last_backup_time', data.exportDate);
+        } else {
+          localStorage.setItem('mt_last_backup_time', new Date().toISOString());
+        }
+      } catch(e) {}
+      updateAdminBackupStatus();
       toast('✓ Veriler başarıyla geri yüklendi!','ok');
       if (currentFinTab === 'dash') renderFinDash();
     } catch(err) {
