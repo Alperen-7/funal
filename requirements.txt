@@ -1,0 +1,2 @@
+# server.py relies exclusively on Python standard library modules
+# No external pip packages are required.

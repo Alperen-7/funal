@@ -1,0 +1,12 @@
+node_modules/
+.DS_Store
+*.log
+scratch/
+test_*.js
+security_remediation_test.js
+.env
+.env.local
+.next/
+dist/
+__pycache__/
+*.pyc
