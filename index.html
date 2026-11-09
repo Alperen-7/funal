@@ -393,17 +393,6 @@
         <p>Henüz işlem eklenmedi.</p>
         <button class="btn-pri" style="width:auto;padding:10px 22px;margin-top:14px" onclick="openAddTrans()">+ İlk İşlemi Ekle</button>
       </div>
-
-      <div class="live-prep-card">
-        <div class="live-prep-head">
-          <h3>💾 Veri Yedekleme &amp; Geri Yükleme</h3>
-          <div class="live-actions">
-            <button class="btn-outline" onclick="exportAppData()">📥 Verileri Yedekle (JSON)</button>
-            <button class="btn-outline" onclick="document.getElementById('importFileInput').click()">📤 Yedeği Geri Yükle</button>
-            <input type="file" id="importFileInput" accept=".json" style="display:none" onchange="importAppData(event)" />
-          </div>
-        </div>
-      </div>
     </div>
 
     <div class="tab" id="tab-fin-trans">
@@ -672,6 +661,29 @@
       </div>
 
       <div style="background:var(--surf);border:1px solid var(--bdr);border-radius:20px;padding:22px;margin-bottom:24px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px">
+          <div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:22px">💾</span>
+              <h2 style="font-size:17px;font-weight:700">Veri Güvenliği &amp; Sistem Yedekleme</h2>
+            </div>
+            <p style="font-size:12.5px;color:var(--txt2);margin-top:4px">
+              Yalnızca yöneticiye özel: Tüm sistem verilerini (finans, yatırım, ürün ve sabit ödemeler) tek tıkla JSON olarak yedekleyebilir veya geri yükleyebilirsiniz.
+            </p>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <button class="btn-pri" onclick="exportAppData()" style="width:auto;padding:10px 20px;background:linear-gradient(135deg,var(--ok),#059669)">
+              📥 Verileri Yedekle (JSON)
+            </button>
+            <button class="btn-sec" onclick="document.getElementById('importFileInput').click()" style="width:auto;padding:10px 18px">
+              📤 Yedeği Geri Yükle
+            </button>
+            <input type="file" id="importFileInput" accept=".json" style="display:none" onchange="importAppData(event)" />
+          </div>
+        </div>
+      </div>
+
+      <div style="background:var(--surf);border:1px solid var(--bdr);border-radius:20px;padding:22px;margin-bottom:24px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
           <div>
             <h2 style="font-size:17px;font-weight:700">👥 Sistemdeki Kullanıcılar</h2>
@@ -697,6 +709,29 @@
   </section>
 
 </main>
+
+<div class="ov" id="adminBackupPromptOv" onclick="ovClick(event,'adminBackupPromptOv',closeAdminBackupPrompt)">
+  <div class="modal" role="dialog" aria-modal="true" style="max-width:500px;text-align:center;padding:28px 24px">
+    <div style="font-size:46px;margin-bottom:12px">🛡️</div>
+    <h2 style="font-size:20px;font-weight:800;letter-spacing:-0.5px;margin-bottom:10px">Veri Güvenliği &amp; Düzenli Yedekleme</h2>
+    <div style="background:rgba(124,106,247,0.1);border:1px solid rgba(124,106,247,0.25);border-radius:14px;padding:14px 16px;margin-bottom:18px;text-align:left">
+      <div style="font-size:14px;font-weight:700;color:var(--txt);margin-bottom:4px">
+        Verilerin güvenliği açısından verileri yedeklemek ister misiniz?
+      </div>
+      <div style="font-size:12px;color:var(--txt2);line-height:1.5">
+        Sistem yöneticisi olarak oturum açtınız. Olası tarayıcı veri kayıplarını önlemek ve tüm kayıtlarınızı güvenceye almak için sistem verilerinizi şimdi JSON olarak indirebilirsiniz.
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <button class="btn-pri" onclick="handleAdminQuickBackup()" style="padding:12px 20px;font-size:14px;background:linear-gradient(135deg,var(--ok),#059669)">
+        📥 Şimdi Verileri Yedekle (JSON İndir)
+      </button>
+      <button class="btn-sec" onclick="closeAdminBackupPrompt()" style="padding:10px 18px;font-size:13px">
+        Şimdilik Geç / Yönetici Paneline Devam Et →
+      </button>
+    </div>
+  </div>
+</div>
 
 <div class="ov" id="addOv" onclick="ovClick(event,'addOv',closeAdd)">
   <div class="modal" role="dialog" aria-modal="true">
@@ -1364,6 +1399,8 @@ function checkPageReloadLogout() {
         localStorage.removeItem(AUTH_KEY);
         localStorage.removeItem(SESSION_KEY);
         localStorage.removeItem(LAST_ACTIVITY_KEY);
+        try { if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('mt_admin_backup_prompted'); } catch(e) {}
+        closeAdminBackupPrompt();
         clearAllAuthInputs();
         if (typeof sessionStorage !== 'undefined') {
           sessionStorage.setItem('mt_show_reload_logout_msg', '1');
@@ -1395,6 +1432,8 @@ function checkInactivityTimeout() {
     localStorage.removeItem(AUTH_KEY);
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(LAST_ACTIVITY_KEY);
+    try { if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('mt_admin_backup_prompted'); } catch(e) {}
+    closeAdminBackupPrompt();
     clearAllAuthInputs();
     checkAuth();
     showAuthView('login');
@@ -1573,6 +1612,12 @@ function checkAuth() {
       }
       updateWelcomeGreeting('Admin');
       renderAdminDashboard();
+      if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('mt_admin_backup_prompted') !== '1') {
+        sessionStorage.setItem('mt_admin_backup_prompted', '1');
+        setTimeout(() => {
+          showAdminBackupPrompt();
+        }, 350);
+      }
     } else {
       
       if (secAdmin) secAdmin.classList.remove('active');
@@ -1783,6 +1828,7 @@ function handleLogin(e) {
     localStorage.setItem(AUTH_KEY, user.username);
     localStorage.setItem(SESSION_KEY, token);
     localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
+    try { if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('mt_admin_backup_prompted'); } catch(e) {}
     clearAllAuthInputs(); 
     recordLoginLog(user.username, 'success', 'Oturum başarıyla açıldı');
     checkAuth();
@@ -2040,6 +2086,8 @@ function handleLogout() {
   localStorage.removeItem(AUTH_KEY);
   localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem(LAST_ACTIVITY_KEY);
+  try { if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('mt_admin_backup_prompted'); } catch(e) {}
+  closeAdminBackupPrompt();
   clearAllAuthInputs(); 
   checkAuth();
   showAuthView('login');
@@ -5181,10 +5229,30 @@ function delTrans(id) {
 
 
 
+function showAdminBackupPrompt() {
+  const ov = document.getElementById('adminBackupPromptOv');
+  if (ov) ov.classList.add('open');
+}
+
+function closeAdminBackupPrompt() {
+  const ov = document.getElementById('adminBackupPromptOv');
+  if (ov) ov.classList.remove('open');
+}
+
+function handleAdminQuickBackup() {
+  exportAppData();
+  closeAdminBackupPrompt();
+}
+
 function exportAppData() {
-  load(); loadFinance(); loadMetropol(); loadInvest();
+  const activeUser = localStorage.getItem(AUTH_KEY);
+  if (!activeUser || activeUser.toLowerCase() !== 'admin') {
+    toast('Bu işlem yalnızca yönetici (admin) tarafından yapılabilir.', 'err');
+    return;
+  }
+  load(); loadFinance(); loadMetropol(); loadInvest(); loadBills();
   const backup = {
-    version: '2.2.0',
+    version: '2.3.0',
     exportDate: new Date().toISOString(),
     products: products || [],
     finance: financeData || [],
@@ -5203,6 +5271,11 @@ function exportAppData() {
 }
 
 function importAppData(e) {
+  const activeUser = localStorage.getItem(AUTH_KEY);
+  if (!activeUser || activeUser.toLowerCase() !== 'admin') {
+    toast('Bu işlem yalnızca yönetici (admin) tarafından yapılabilir.', 'err');
+    return;
+  }
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
