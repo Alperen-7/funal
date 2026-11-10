@@ -408,9 +408,74 @@ class MyTakipHandler(SimpleHTTPRequestHandler):
 
         return results
 
-handler = MyTakipHandler
-app = MyTakipHandler
-application = MyTakipHandler
+def wsgi_app(environ, start_response):
+    path = environ.get('PATH_INFO', '/')
+    if not path or path == '/':
+        path = '/index.html'
+
+    clean_path = path.split('?')[0]
+
+    if clean_path == '/api/quotes':
+        qs = environ.get('QUERY_STRING', '')
+        params = urllib.parse.parse_qs(qs)
+        symbols_str = params.get('symbols', [''])[0].strip().upper()
+        raw_symbols = [s.strip() for s in symbols_str.split(',') if s.strip()]
+        symbols = [s for s in raw_symbols if SYMBOL_REGEX.match(s)]
+        inst = MyTakipHandler.__new__(MyTakipHandler)
+        data = inst.fetch_batch_quotes(symbols) if symbols else {}
+        body = json.dumps(data, ensure_ascii=False).encode('utf-8')
+        start_response('200 OK', [
+            ('Content-Type', 'application/json; charset=utf-8'),
+            ('Access-Control-Allow-Origin', '*')
+        ])
+        return [body]
+
+    if clean_path == '/api/quote':
+        qs = environ.get('QUERY_STRING', '')
+        params = urllib.parse.parse_qs(qs)
+        symbol = params.get('symbol', [''])[0].strip().upper()
+        inst = MyTakipHandler.__new__(MyTakipHandler)
+        data = inst.fetch_market_data(symbol) if (symbol and SYMBOL_REGEX.match(symbol)) else {'error': 'Geçersiz sembol'}
+        body = json.dumps(data, ensure_ascii=False).encode('utf-8')
+        start_response('200 OK', [
+            ('Content-Type', 'application/json; charset=utf-8'),
+            ('Access-Control-Allow-Origin', '*')
+        ])
+        return [body]
+
+    rel_path = clean_path.lstrip('/')
+    file_path = os.path.join(DIRECTORY, rel_path)
+    if os.path.abspath(file_path).startswith(DIRECTORY) and os.path.isfile(file_path):
+        mime_types = {
+            '.html': 'text/html; charset=utf-8',
+            '.css': 'text/css; charset=utf-8',
+            '.js': 'application/javascript; charset=utf-8',
+            '.json': 'application/json; charset=utf-8',
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.svg': 'image/svg+xml',
+            '.ico': 'image/x-icon'
+        }
+        ext = os.path.splitext(file_path)[1].lower()
+        content_type = mime_types.get(ext, 'application/octet-stream')
+        try:
+            with open(file_path, 'rb') as f:
+                content = f.read()
+            start_response('200 OK', [
+                ('Content-Type', content_type),
+                ('Access-Control-Allow-Origin', '*')
+            ])
+            return [content]
+        except Exception:
+            pass
+
+    start_response('404 Not Found', [('Content-Type', 'text/plain')])
+    return [b'Not Found']
+
+app = wsgi_app
+application = wsgi_app
+handler = wsgi_app
 
 if __name__ == '__main__':
     with ThreadingHTTPServer(('', PORT), MyTakipHandler) as httpd:
