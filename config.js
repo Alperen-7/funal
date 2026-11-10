@@ -43,4 +43,25 @@ const APP_CONFIG = {
   APP_VERSION: '2.3.0',
 };
 
-if (typeof window !== 'undefined') window.APP_CONFIG = APP_CONFIG;
+if (typeof window !== 'undefined') {
+  if (typeof document !== 'undefined') {
+    try {
+      const s1 = document.createElement('script');
+      s1.src = 'secrets/supabase.js';
+      document.head.appendChild(s1);
+    } catch(e) {}
+    try {
+      const s2 = document.createElement('script');
+      s2.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+      document.head.appendChild(s2);
+    } catch(e) {}
+  }
+  if (window.PRIVATE_SUPABASE_CONFIG && window.PRIVATE_SUPABASE_CONFIG.ENABLED) {
+    APP_CONFIG.SUPABASE = {
+      ENABLED: true,
+      URL: window.PRIVATE_SUPABASE_CONFIG.URL || '',
+      ANON_KEY: window.PRIVATE_SUPABASE_CONFIG.ANON_KEY || ''
+    };
+  }
+  window.APP_CONFIG = APP_CONFIG;
+}
