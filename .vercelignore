@@ -1,0 +1,12 @@
+server.py
+requirements.txt
+Procfile
+next.config.ts
+app/
+components/
+lib/
+test_*.js
+scratch/
+security_remediation_test.js
+.git
+.gitignore

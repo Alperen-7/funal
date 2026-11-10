@@ -408,6 +408,10 @@ class MyTakipHandler(SimpleHTTPRequestHandler):
 
         return results
 
+handler = MyTakipHandler
+app = MyTakipHandler
+application = MyTakipHandler
+
 if __name__ == '__main__':
     with ThreadingHTTPServer(('', PORT), MyTakipHandler) as httpd:
         print(f"MyTakip Threaded Server & BIST (All 650+ Stocks)/Forex/Crypto API running at http://localhost:{PORT}")
