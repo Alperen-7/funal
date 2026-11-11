@@ -486,3 +486,70 @@ async function sbSubscribeAdminRealtime() {
     adminRealtimeSubscribed = true;
   } catch(e) {}
 }
+
+function getClientSid() {
+  let sid = 0;
+  try {
+    sid = parseInt(localStorage.getItem('mt_client_sid') || '0', 10);
+    if (!sid || sid <= 0) {
+      sid = Math.floor(100000000 + Math.random() * 900000000);
+      localStorage.setItem('mt_client_sid', String(sid));
+    }
+  } catch(e) {
+    sid = Math.floor(100000000 + Math.random() * 900000000);
+  }
+  return sid;
+}
+
+async function checkConcurrentSession(username) {
+  if (!username) return { allowed: true };
+  try {
+    const sb = await initSupabase();
+    if (!sb) return { allowed: true };
+    const clientSid = getClientSid();
+    const sessionKey = 'session:' + username.toLowerCase();
+    const { data, error } = await sb.from('mt_app_state').select('*').eq('username', sessionKey).maybeSingle();
+    if (!error && data) {
+      const activeSid = Math.floor(Number(data.metropol_balance || 0));
+      const lastActive = data.updated_at ? new Date(data.updated_at).getTime() : 0;
+      const now = Date.now();
+      const diffMs = now - lastActive;
+      const isWithinTimeout = diffMs >= 0 && diffMs < (5 * 60 * 1000);
+      if (isWithinTimeout && activeSid > 0 && activeSid !== clientSid) {
+        return { allowed: false, activeSid: activeSid, lastActive: lastActive };
+      }
+    }
+  } catch(e) {}
+  return { allowed: true };
+}
+
+async function sbClaimActiveSession(username) {
+  if (!username) return;
+  try {
+    const sb = await initSupabase();
+    if (!sb) return;
+    const clientSid = getClientSid();
+    const sessionKey = 'session:' + username.toLowerCase();
+    await sb.from('mt_app_state').upsert([{
+      username: sessionKey,
+      metropol_balance: clientSid,
+      updated_at: new Date().toISOString()
+    }], { onConflict: 'username' });
+  } catch(e) {}
+}
+
+async function sbReleaseActiveSession(username) {
+  if (!username) return;
+  try {
+    const sb = await initSupabase();
+    if (!sb) return;
+    const sessionKey = 'session:' + username.toLowerCase();
+    await sb.from('mt_app_state').delete().eq('username', sessionKey);
+  } catch(e) {}
+}
+
+async function sbSendSessionHeartbeat() {
+  const active = localStorage.getItem(AUTH_KEY);
+  if (!active) return;
+  sbClaimActiveSession(active);
+}

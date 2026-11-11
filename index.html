@@ -1388,6 +1388,10 @@ function updateLastActivity() {
   if (!window._lastActivityThrottle || (now - window._lastActivityThrottle > 3000)) {
     window._lastActivityThrottle = now;
     try { localStorage.setItem(LAST_ACTIVITY_KEY, String(now)); } catch(e) {}
+    if (!window._lastHeartbeat || (now - window._lastHeartbeat > 30000)) {
+      window._lastHeartbeat = now;
+      if (typeof sbSendSessionHeartbeat === 'function') sbSendSessionHeartbeat();
+    }
   }
 }
 
@@ -1414,6 +1418,7 @@ function checkPageReloadLogout() {
       const active = localStorage.getItem(AUTH_KEY);
       if (active && active.toLowerCase() !== 'admin') {
         recordLoginLog(active, 'logout', 'Sayfa yenilendiği için oturum sonlandırıldı');
+        if (typeof sbReleaseActiveSession === 'function') sbReleaseActiveSession(active);
         localStorage.removeItem(AUTH_KEY);
         localStorage.removeItem(SESSION_KEY);
         localStorage.removeItem(LAST_ACTIVITY_KEY);
@@ -1451,6 +1456,7 @@ function checkInactivityTimeout() {
 
   if (lastAct > 0 && (now - lastAct > INACTIVITY_TIMEOUT_MS)) {
     recordLoginLog(active, 'logout', '5 dakika boyunca işlem yapılmadığı için oturum otomatik kapatıldı (Inactivity Timeout)');
+    if (typeof sbReleaseActiveSession === 'function') sbReleaseActiveSession(active);
     localStorage.removeItem(AUTH_KEY);
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(LAST_ACTIVITY_KEY);
@@ -1781,7 +1787,15 @@ function renderAdminDashboard(skipCloudSync) {
             ${logs.slice(0, 100).map(l => {
               let badgeCls = 'success';
               let badgeText = '✓ Giriş Başarılı';
-              if (l.status === 'failed') { badgeCls = 'failed'; badgeText = '❌ Hatalı PIN'; }
+              if (l.status === 'failed') {
+                if (l.message && (l.message.includes('Eşzamanlı') || l.message.includes('eşzamanlı'))) {
+                  badgeCls = 'failed';
+                  badgeText = '⛔ Eşzamanlı Giriş Engellendi';
+                } else {
+                  badgeCls = 'failed';
+                  badgeText = '❌ Hatalı PIN';
+                }
+              }
               else if (l.status === 'logout') { badgeCls = 'logout'; badgeText = '🚪 Çıkış Yapıldı'; }
               else if (l.status === 'register') { badgeCls = 'register'; badgeText = '🎉 Yeni Kayıt'; }
               else if (l.status === 'reset') { badgeCls = 'reset'; badgeText = '🔑 PIN Sıfırlandı'; }
@@ -1899,6 +1913,20 @@ function handlePinAutoSubmit(inputEl) {
   }
 }
 
+function completeSuccessfulLogin(user, errEl) {
+  if (errEl) errEl.classList.remove('show');
+  const token = generateSessionToken(user.username, user.pinHash);
+  localStorage.setItem(AUTH_KEY, user.username);
+  localStorage.setItem(SESSION_KEY, token);
+  localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
+  try { if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('mt_admin_backup_prompted'); } catch(e) {}
+  clearAllAuthInputs(); 
+  recordLoginLog(user.username, 'success', 'Oturum başarıyla açıldı');
+  if (typeof sbClaimActiveSession === 'function') sbClaimActiveSession(user.username);
+  checkAuth();
+  toast(`✓ Hoş geldiniz, ${formatUserName(user.username)}!`, 'ok');
+}
+
 function handleLogin(e) {
   if (e) e.preventDefault();
   loadUsers();
@@ -1920,17 +1948,24 @@ function handleLogin(e) {
   const inputPinHash = hashPin(pin, u);
 
   if (user && user.pinHash === inputPinHash) {
-    if (errEl) errEl.classList.remove('show');
-    
-    const token = generateSessionToken(user.username, user.pinHash);
-    localStorage.setItem(AUTH_KEY, user.username);
-    localStorage.setItem(SESSION_KEY, token);
-    localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
-    try { if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('mt_admin_backup_prompted'); } catch(e) {}
-    clearAllAuthInputs(); 
-    recordLoginLog(user.username, 'success', 'Oturum başarıyla açıldı');
-    checkAuth();
-    toast(`✓ Hoş geldiniz, ${formatUserName(user.username)}!`, 'ok');
+    if (typeof checkConcurrentSession === 'function' && typeof window !== 'undefined' && window.supabase) {
+      checkConcurrentSession(user.username).then(res => {
+        if (!res.allowed) {
+          recordLoginLog(user.username, 'failed', '⛔ Eşzamanlı oturum engellendi: Bu hesap şu anda başka bir cihaz veya tarayıcıda aktif');
+          if (errEl) {
+            errEl.classList.add('show');
+            errMsg.textContent = '⛔ Bu hesap şu anda başka bir tarayıcı veya bilgisayarda açık! Güvenlik nedeniyle aynı anda birden fazla oturum açılamaz.';
+          }
+          toast('⛔ Bu hesap başka bir cihazda aktif! Eşzamanlı oturum engellendi.', 'err');
+          const pinEl = document.getElementById('authPin');
+          if (pinEl) { pinEl.value = ''; pinEl.focus(); }
+          return;
+        }
+        completeSuccessfulLogin(user, errEl);
+      });
+      return;
+    }
+    completeSuccessfulLogin(user, errEl);
   } else if (!user && typeof checkCloudLogin === 'function') {
     checkCloudLogin(u, pin, inputPinHash, errEl, errMsg);
   } else {
@@ -1954,6 +1989,21 @@ async function checkCloudLogin(u, pin, inputPinHash, errEl, errMsg) {
     }
     const { data, error } = await sb.from('mt_users').select('*').eq('username', u).maybeSingle();
     if (!error && data && data.pin_hash === inputPinHash) {
+      if (typeof checkConcurrentSession === 'function') {
+        const sessionCheck = await checkConcurrentSession(data.username);
+        if (!sessionCheck.allowed) {
+          recordLoginLog(data.username, 'failed', '⛔ Eşzamanlı oturum engellendi: Bu hesap şu anda başka bir cihaz veya tarayıcıda aktif');
+          if (errEl) {
+            errEl.classList.add('show');
+            errMsg.textContent = '⛔ Bu hesap şu anda başka bir tarayıcı veya bilgisayarda açık! Güvenlik nedeniyle aynı anda birden fazla oturum açılamaz.';
+          }
+          toast('⛔ Bu hesap başka bir cihazda aktif! Eşzamanlı oturum engellendi.', 'err');
+          const pinEl = document.getElementById('authPin');
+          if (pinEl) { pinEl.value = ''; pinEl.focus(); }
+          return;
+        }
+      }
+
       const newUser = {
         username: data.username,
         pinHash: data.pin_hash,
@@ -1968,16 +2018,7 @@ async function checkCloudLogin(u, pin, inputPinHash, errEl, errMsg) {
         usersList.push(newUser);
         saveUsers();
       }
-      if (errEl) errEl.classList.remove('show');
-      const token = generateSessionToken(newUser.username, newUser.pinHash);
-      localStorage.setItem(AUTH_KEY, newUser.username);
-      localStorage.setItem(SESSION_KEY, token);
-      localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
-      try { if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('mt_admin_backup_prompted'); } catch(e) {}
-      clearAllAuthInputs(); 
-      recordLoginLog(newUser.username, 'success', 'Oturum başarıyla açıldı');
-      checkAuth();
-      toast(`✓ Hoş geldiniz, ${formatUserName(newUser.username)}!`, 'ok');
+      completeSuccessfulLogin(newUser, errEl);
     } else {
       recordLoginLog(u, 'failed', 'Hatalı PIN veya kullanıcı adı denemesi');
       if (errEl) {
@@ -2107,6 +2148,7 @@ function handleRegister(e) {
   localStorage.setItem(AUTH_KEY, u);
   localStorage.setItem(SESSION_KEY, token);
   localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
+  if (typeof sbClaimActiveSession === 'function') sbClaimActiveSession(u);
 
   try { if (navigator.clipboard) navigator.clipboard.writeText(recoveryKey); } catch(e) {}
 
@@ -2258,6 +2300,7 @@ function handleForgot(e) {
   localStorage.setItem(AUTH_KEY, user.username);
   localStorage.setItem(SESSION_KEY, token);
   localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
+  if (typeof sbClaimActiveSession === 'function') sbClaimActiveSession(user.username);
   clearAllAuthInputs();
   
   checkAuth();
@@ -2267,7 +2310,10 @@ function handleForgot(e) {
 function handleLogout() {
   if (!confirm('Oturumu kapatmak istediğinize emin misiniz?')) return;
   const cur = localStorage.getItem(AUTH_KEY);
-  if (cur) recordLoginLog(cur, 'logout', 'Kullanıcı çıkış yaptı');
+  if (cur) {
+    recordLoginLog(cur, 'logout', 'Kullanıcı çıkış yaptı');
+    if (typeof sbReleaseActiveSession === 'function') sbReleaseActiveSession(cur);
+  }
   localStorage.removeItem(AUTH_KEY);
   localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem(LAST_ACTIVITY_KEY);
@@ -6142,6 +6188,84 @@ async function sbInitialSync() {
     }
   } catch(e) {}
 }
+
+function getClientSid() {
+  let sid = 0;
+  try {
+    sid = parseInt(localStorage.getItem('mt_client_sid') || '0', 10);
+    if (!sid || sid <= 0) {
+      sid = Math.floor(100000000 + Math.random() * 900000000);
+      localStorage.setItem('mt_client_sid', String(sid));
+    }
+  } catch(e) {
+    sid = Math.floor(100000000 + Math.random() * 900000000);
+  }
+  return sid;
+}
+
+async function checkConcurrentSession(username) {
+  if (!username) return { allowed: true };
+  try {
+    const sb = await initSupabase();
+    if (!sb) return { allowed: true };
+    const clientSid = getClientSid();
+    const sessionKey = 'session:' + username.toLowerCase();
+    const { data, error } = await sb.from('mt_app_state').select('*').eq('username', sessionKey).maybeSingle();
+    if (!error && data) {
+      const activeSid = Math.floor(Number(data.metropol_balance || 0));
+      const lastActive = data.updated_at ? new Date(data.updated_at).getTime() : 0;
+      const now = Date.now();
+      const diffMs = now - lastActive;
+      const isWithinTimeout = diffMs >= 0 && diffMs < (5 * 60 * 1000);
+      if (isWithinTimeout && activeSid > 0 && activeSid !== clientSid) {
+        return { allowed: false, activeSid: activeSid, lastActive: lastActive };
+      }
+    }
+  } catch(e) {}
+  return { allowed: true };
+}
+
+async function sbClaimActiveSession(username) {
+  if (!username) return;
+  try {
+    const sb = await initSupabase();
+    if (!sb) return;
+    const clientSid = getClientSid();
+    const sessionKey = 'session:' + username.toLowerCase();
+    await sb.from('mt_app_state').upsert([{
+      username: sessionKey,
+      metropol_balance: clientSid,
+      updated_at: new Date().toISOString()
+    }], { onConflict: 'username' });
+  } catch(e) {}
+}
+
+async function sbReleaseActiveSession(username) {
+  if (!username) return;
+  try {
+    const sb = await initSupabase();
+    if (!sb) return;
+    const sessionKey = 'session:' + username.toLowerCase();
+    await sb.from('mt_app_state').delete().eq('username', sessionKey);
+  } catch(e) {}
+}
+
+async function sbSendSessionHeartbeat() {
+  const active = localStorage.getItem(AUTH_KEY);
+  if (!active) return;
+  sbClaimActiveSession(active);
+}
+
+try {
+  if (typeof window !== 'undefined') {
+    setInterval(() => {
+      if (typeof sbSendSessionHeartbeat === 'function') {
+        const active = localStorage.getItem(AUTH_KEY);
+        if (active) sbSendSessionHeartbeat();
+      }
+    }, 45000);
+  }
+} catch(e) {}
 
 try {
   if (typeof window !== 'undefined') {
