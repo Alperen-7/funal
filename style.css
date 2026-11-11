@@ -2732,6 +2732,7 @@ body::before {
 .adm-log-badge.logout { background: rgba(148, 163, 184, 0.15); color: var(--txt2); }
 .adm-log-badge.register { background: rgba(34, 211, 238, 0.15); color: var(--acc); }
 .adm-log-badge.reset { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+.admRefreshSpin { display: inline-block; transition: transform 0.5s ease; }
 
 .chart-card {
   background: var(--bg-surface);

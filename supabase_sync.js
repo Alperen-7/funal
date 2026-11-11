@@ -349,3 +349,137 @@ async function sbFetchUsersFromCloud() {
   } catch(e) {}
   return null;
 }
+
+async function sbFetchAuditLogsFromCloud(limit = 100) {
+  const sb = await initSupabase();
+  if (!sb) return null;
+  try {
+    const { data, error } = await sb.from('mt_login_logs').select('*').order('created_at', { ascending: false }).limit(limit);
+    if (!error && Array.isArray(data)) {
+      return data.map(l => {
+        const d = l.created_at ? new Date(l.created_at) : new Date();
+        const dateStr = d.toLocaleDateString('tr-TR', { day:'2-digit', month:'long', year:'numeric' }) + ' ' + d.toLocaleTimeString('tr-TR', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+        return {
+          id: l.id,
+          username: l.username,
+          status: l.status,
+          message: l.message,
+          dateStr: dateStr,
+          timestamp: d.getTime()
+        };
+      });
+    }
+  } catch(e) {}
+  return null;
+}
+
+async function sbClearAuditLogs() {
+  const sb = await initSupabase();
+  if (!sb) return;
+  try {
+    await sb.from('mt_login_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+  } catch(e) {}
+}
+
+async function sbDeleteUserFromCloud(username) {
+  const sb = await initSupabase();
+  if (!sb || !username) return;
+  try {
+    await sb.from('mt_users').delete().eq('username', username.toLowerCase());
+  } catch(e) {}
+}
+
+let isSbAdminSyncing = false;
+let adminRealtimeSubscribed = false;
+
+async function sbSyncAdminDashboard() {
+  if (isSbAdminSyncing) return;
+  isSbAdminSyncing = true;
+  try {
+    if (!adminRealtimeSubscribed) {
+      sbSubscribeAdminRealtime();
+    }
+    const [cloudUsers, cloudLogs] = await Promise.all([
+      sbFetchUsersFromCloud(),
+      sbFetchAuditLogsFromCloud(100)
+    ]);
+
+    if (cloudUsers && Array.isArray(cloudUsers) && cloudUsers.length > 0) {
+      if (typeof loadUsers === 'function') loadUsers();
+      let changed = false;
+      cloudUsers.forEach(cu => {
+        const existing = usersList.find(x => x.username.toLowerCase() === cu.username.toLowerCase());
+        if (!existing) {
+          usersList.push(cu);
+          changed = true;
+        } else {
+          if (cu.createdAt && (!existing.createdAt || existing.createdAt !== cu.createdAt)) {
+            existing.createdAt = cu.createdAt;
+            changed = true;
+          }
+          if (cu.role && existing.role !== cu.role) {
+            existing.role = cu.role;
+            changed = true;
+          }
+          if (cu.pinHash && existing.pinHash !== cu.pinHash) {
+            existing.pinHash = cu.pinHash;
+            changed = true;
+          }
+        }
+      });
+      if (changed && typeof saveUsers === 'function') {
+        const sanitized = usersList.map(u => {
+          const copy = { ...u };
+          delete copy.pin;
+          delete copy.secA;
+          delete copy.recoveryKey;
+          return copy;
+        });
+        localStorage.setItem(USERS_KEY, JSON.stringify(sanitized));
+      }
+    }
+
+    if (cloudLogs && Array.isArray(cloudLogs) && cloudLogs.length > 0) {
+      const localLogs = typeof getLoginLogs === 'function' ? getLoginLogs() : [];
+      const knownKeys = new Set(localLogs.map(l => (l.id ? l.id : '') + '_' + (l.timestamp || '') + '_' + (l.username || '') + '_' + (l.status || '')));
+      const newItems = [];
+      cloudLogs.forEach(cl => {
+        const k1 = (cl.id ? cl.id : '') + '_' + (cl.timestamp || '') + '_' + (cl.username || '') + '_' + (cl.status || '');
+        const k2 = (cl.timestamp || '') + '_' + (cl.username || '') + '_' + (cl.status || '');
+        if (!knownKeys.has(k1) && !knownKeys.has(k2)) {
+          newItems.push(cl);
+          knownKeys.add(k1);
+        }
+      });
+      if (newItems.length > 0) {
+        const merged = [...newItems, ...localLogs].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        if (merged.length > 200) merged.length = 200;
+        localStorage.setItem(LOGS_KEY, JSON.stringify(merged));
+      }
+    }
+
+    if (typeof renderAdminDashboard === 'function') {
+      renderAdminDashboard(true);
+    }
+  } catch(e) {
+  } finally {
+    isSbAdminSyncing = false;
+  }
+}
+
+async function sbSubscribeAdminRealtime() {
+  if (adminRealtimeSubscribed) return;
+  const sb = await initSupabase();
+  if (!sb || !sb.channel) return;
+  try {
+    sb.channel('admin_audit_stream')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'mt_login_logs' }, () => {
+        sbSyncAdminDashboard();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'mt_users' }, () => {
+        sbSyncAdminDashboard();
+      })
+      .subscribe();
+    adminRealtimeSubscribed = true;
+  } catch(e) {}
+}
