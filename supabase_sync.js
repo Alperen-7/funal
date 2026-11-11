@@ -26,7 +26,10 @@ async function getSupabaseCredentials() {
       }
     } catch(e) {}
   }
-  return null;
+  return {
+    url: 'https://huwfyjwutmpsgkoqkvcx.supabase.co',
+    anonKey: 'sb_publishable_yXR8MSqvTCbBnh4VG2sNWg_SfW3dzj1'
+  };
 }
 
 async function initSupabase() {

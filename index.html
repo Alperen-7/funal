@@ -1916,6 +1916,8 @@ function handleLogin(e) {
     recordLoginLog(user.username, 'success', 'Oturum başarıyla açıldı');
     checkAuth();
     toast(`✓ Hoş geldiniz, ${formatUserName(user.username)}!`, 'ok');
+  } else if (!user && typeof checkCloudLogin === 'function') {
+    checkCloudLogin(u, pin, inputPinHash, errEl, errMsg);
   } else {
     recordLoginLog(u, 'failed', 'Hatalı PIN veya kullanıcı adı denemesi');
     if (errEl) {
@@ -1924,6 +1926,55 @@ function handleLogin(e) {
     }
     const pinEl = document.getElementById('authPin');
     if (pinEl) { pinEl.value = ''; pinEl.focus(); }
+  }
+}
+
+async function checkCloudLogin(u, pin, inputPinHash, errEl, errMsg) {
+  try {
+    const sb = await initSupabase();
+    if (!sb) {
+      recordLoginLog(u, 'failed', 'Hatalı PIN veya kullanıcı adı denemesi');
+      if (errEl) { errEl.classList.add('show'); errMsg.textContent = 'Hatalı kullanıcı adı veya 6 haneli PIN!'; }
+      return;
+    }
+    const { data, error } = await sb.from('mt_users').select('*').eq('username', u).maybeSingle();
+    if (!error && data && data.pin_hash === inputPinHash) {
+      const newUser = {
+        username: data.username,
+        pinHash: data.pin_hash,
+        secQ: data.sec_q || '',
+        secAHash: data.sec_a_hash || '',
+        recoveryKeyHash: data.recovery_key_hash || '',
+        role: data.role || 'user',
+        createdAt: data.created_at ? new Date(data.created_at).getTime() : Date.now()
+      };
+      loadUsers();
+      if (!usersList.some(x => x.username.toLowerCase() === newUser.username.toLowerCase())) {
+        usersList.push(newUser);
+        saveUsers();
+      }
+      if (errEl) errEl.classList.remove('show');
+      const token = generateSessionToken(newUser.username, newUser.pinHash);
+      localStorage.setItem(AUTH_KEY, newUser.username);
+      localStorage.setItem(SESSION_KEY, token);
+      localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
+      try { if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('mt_admin_backup_prompted'); } catch(e) {}
+      clearAllAuthInputs(); 
+      recordLoginLog(newUser.username, 'success', 'Oturum başarıyla açıldı');
+      checkAuth();
+      toast(`✓ Hoş geldiniz, ${formatUserName(newUser.username)}!`, 'ok');
+    } else {
+      recordLoginLog(u, 'failed', 'Hatalı PIN veya kullanıcı adı denemesi');
+      if (errEl) {
+        errEl.classList.add('show');
+        errMsg.textContent = 'Hatalı kullanıcı adı veya 6 haneli PIN!';
+      }
+      const pinEl = document.getElementById('authPin');
+      if (pinEl) { pinEl.value = ''; pinEl.focus(); }
+    }
+  } catch(e) {
+    recordLoginLog(u, 'failed', 'Hatalı PIN veya kullanıcı adı denemesi');
+    if (errEl) { errEl.classList.add('show'); errMsg.textContent = 'Hatalı kullanıcı adı veya 6 haneli PIN!'; }
   }
 }
 
@@ -2078,6 +2129,41 @@ function loadForgotSecQ() {
     if (pinWrap) pinWrap.style.display = 'block';
     if (qLbl) qLbl.textContent = '1. Seçenek: Güvenlik Sorunuz (' + (user.secQ || 'En sevdiğin renk?') + ')';
     if (btn) btn.textContent = 'Şifremi Sıfırla ve Giriş Yap →';
+  } else if (typeof initSupabase === 'function') {
+    initSupabase().then(sb => {
+      if (!sb) {
+        if (errEl) { errEl.classList.add('show'); document.getElementById('forgotErrorMsg').textContent = 'Kullanıcı bulunamadı!'; }
+        return;
+      }
+      sb.from('mt_users').select('*').eq('username', u).maybeSingle().then(({ data }) => {
+        if (data) {
+          const cu = {
+            username: data.username,
+            pinHash: data.pin_hash,
+            secQ: data.sec_q || '',
+            secAHash: data.sec_a_hash || '',
+            recoveryKeyHash: data.recovery_key_hash || '',
+            role: data.role || 'user',
+            createdAt: data.created_at ? new Date(data.created_at).getTime() : Date.now()
+          };
+          loadUsers();
+          if (!usersList.some(x => x.username.toLowerCase() === cu.username.toLowerCase())) {
+            usersList.push(cu);
+            saveUsers();
+          }
+          if (errEl) errEl.classList.remove('show');
+          if (qWrap) qWrap.style.display = 'block';
+          if (pinWrap) pinWrap.style.display = 'block';
+          if (qLbl) qLbl.textContent = '1. Seçenek: Güvenlik Sorunuz (' + (cu.secQ || 'En sevdiğin renk?') + ')';
+          if (btn) btn.textContent = 'Şifremi Sıfırla ve Giriş Yap →';
+        } else {
+          if (errEl) {
+            errEl.classList.add('show');
+            document.getElementById('forgotErrorMsg').textContent = 'Kullanıcı bulunamadı!';
+          }
+        }
+      });
+    });
   } else {
     if (errEl) {
       errEl.classList.add('show');
@@ -2171,6 +2257,12 @@ function handleLogout() {
   localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem(LAST_ACTIVITY_KEY);
   try { if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('mt_admin_backup_prompted'); } catch(e) {}
+  financeData = [];
+  investData = [];
+  investTrades = [];
+  billsData = [];
+  products = [];
+  metropolBalance = 0;
   closeAdminBackupPrompt();
   clearAllAuthInputs(); 
   checkAuth();
@@ -3130,6 +3222,7 @@ function deleteInvest(id) {
   if (!confirm(`"${item.symbol}" varlığını portföyden silmek istediğinize emin misiniz?`)) return;
   investData = investData.filter(i => i.id !== id);
   saveInvest();
+  if (typeof sbDeleteInvestItem === 'function') sbDeleteInvestItem(id);
   toast('Varlık portföyden silindi.', 'ok');
 }
 
@@ -3137,13 +3230,20 @@ const SBK = (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.STORAGE_BILLS) ? AP
 let billsData = [];
 
 function loadBills() {
-  try { billsData = JSON.parse(localStorage.getItem(SBK)) || []; }
-  catch(e) { billsData = []; }
+  const key = getUserScopedKey(SBK);
+  try {
+    let raw = localStorage.getItem(key);
+    if (!raw && key !== SBK) {
+      raw = localStorage.getItem(SBK);
+    }
+    billsData = JSON.parse(raw) || [];
+  } catch(e) { billsData = []; }
   renderBills();
   renderBillsReminder();
 }
 
 function saveBills() {
+  localStorage.setItem(getUserScopedKey(SBK), JSON.stringify(billsData));
   localStorage.setItem(SBK, JSON.stringify(billsData));
   renderBills();
   renderBillsReminder();
@@ -3326,6 +3426,7 @@ function cancelBill(id) {
 
   billsData = billsData.filter(x => x.id !== id);
   saveBills();
+  if (typeof sbDeleteBillItem === 'function') sbDeleteBillItem(id);
   toast(`✓ "${b.name}" sabit ödemelerden kaldırıldı.`, 'ok');
 }
 
@@ -3379,8 +3480,19 @@ document.addEventListener('DOMContentLoaded', () => {
   dz.addEventListener('drop', e => { e.preventDefault(); dz.style.borderColor = ''; const f = e.dataTransfer.files[0]; if(f) processOcrFile(f); });
 });
 
-function load() { try { products = JSON.parse(localStorage.getItem(SK)) || []; } catch { products = []; } buildColors(); }
+function load() {
+  const key = getUserScopedKey(SK);
+  try {
+    let raw = localStorage.getItem(key);
+    if (!raw && key !== SK) {
+      raw = localStorage.getItem(SK);
+    }
+    products = JSON.parse(raw) || [];
+  } catch(e) { products = []; }
+  buildColors();
+}
 function save() {
+  localStorage.setItem(getUserScopedKey(SK), JSON.stringify(products));
   localStorage.setItem(SK, JSON.stringify(products));
   buildColors();
   const activeUser = localStorage.getItem(AUTH_KEY);
@@ -4295,6 +4407,7 @@ function delProduct(id) {
   if(!p||!confirm(`"${p.name}" kaydını silmek istediğinizden emin misiniz?`)) return;
   products=products.filter(p=>p.id!==id);
   save();renderAll();closeDet();
+  if (typeof sbDeleteProductItem === 'function') sbDeleteProductItem(id);
   toast(`🗑 "${p.name}" silindi.`);
 }
 
@@ -4469,7 +4582,12 @@ function saveMetropol(val) {
   metropolBalance = Math.round(val * 100) / 100;
   const key = getUserScopedKey(SMK);
   localStorage.setItem(key, metropolBalance.toString());
+  localStorage.setItem(SMK, metropolBalance.toString());
   renderMetropol();
+  const active = localStorage.getItem(AUTH_KEY);
+  if (typeof sbSaveAppStateRemote === 'function' && active) {
+    sbSaveAppStateRemote(active, { metropolBalance });
+  }
 }
 
 function addMetropolBalance(amt) {
@@ -4632,7 +4750,14 @@ function addFinanceTransaction(data) {
 }
 
 function loadFinance() {
-  try { financeData = JSON.parse(localStorage.getItem(FSK)) || []; } catch(e) { financeData = []; }
+  const key = getUserScopedKey(FSK);
+  try {
+    let raw = localStorage.getItem(key);
+    if (!raw && key !== FSK) {
+      raw = localStorage.getItem(FSK);
+    }
+    financeData = JSON.parse(raw) || [];
+  } catch(e) { financeData = []; }
   let changed = false;
   financeData.forEach(t => {
     if (t.desc && t.desc.includes('[Hisse Satışı - Nakite Çevrildi]') && t.type === 'gider') {
@@ -4643,6 +4768,7 @@ function loadFinance() {
   if (changed) saveFinance();
 }
 function saveFinance() {
+  localStorage.setItem(getUserScopedKey(FSK), JSON.stringify(financeData));
   localStorage.setItem(FSK, JSON.stringify(financeData));
   const activeUser = localStorage.getItem(AUTH_KEY);
   if (typeof sbPushExistingFinance === 'function' && activeUser) {
@@ -5346,6 +5472,7 @@ function delTrans(id) {
 
   financeData = financeData.filter(item=>item.id!==id);
   saveFinance();
+  if (typeof sbDeleteFinanceItem === 'function') sbDeleteFinanceItem(id);
   closeTransDet();
   toast('İşlem silindi.','ok');
   if (currentFinTab==='dash')  renderFinDash();
@@ -5507,13 +5634,13 @@ let sbClient = null;
 
 async function getSupabaseCredentials() {
   if (typeof window !== 'undefined') {
-    if (window.PRIVATE_SUPABASE_CONFIG && window.PRIVATE_SUPABASE_CONFIG.URL) {
+    if (window.PRIVATE_SUPABASE_CONFIG && window.PRIVATE_SUPABASE_CONFIG.URL && window.PRIVATE_SUPABASE_CONFIG.ANON_KEY) {
       return {
         url: window.PRIVATE_SUPABASE_CONFIG.URL,
         anonKey: window.PRIVATE_SUPABASE_CONFIG.ANON_KEY
       };
     }
-    if (window.APP_CONFIG && window.APP_CONFIG.SUPABASE && window.APP_CONFIG.SUPABASE.URL) {
+    if (window.APP_CONFIG && window.APP_CONFIG.SUPABASE && window.APP_CONFIG.SUPABASE.URL && window.APP_CONFIG.SUPABASE.ANON_KEY) {
       return {
         url: window.APP_CONFIG.SUPABASE.URL,
         anonKey: window.APP_CONFIG.SUPABASE.ANON_KEY
@@ -5531,7 +5658,10 @@ async function getSupabaseCredentials() {
       }
     } catch(e) {}
   }
-  return null;
+  return {
+    url: 'https://huwfyjwutmpsgkoqkvcx.supabase.co',
+    anonKey: 'sb_publishable_yXR8MSqvTCbBnh4VG2sNWg_SfW3dzj1'
+  };
 }
 
 async function initSupabase() {
@@ -5579,9 +5709,13 @@ async function sbPullUserData(username) {
         date: d.date,
         createdAt: d.created_at ? new Date(d.created_at).getTime() : Date.now()
       }));
+      localStorage.setItem(getUserScopedKey(FSK), JSON.stringify(financeData));
       localStorage.setItem(FSK, JSON.stringify(financeData));
     } else if (financeData && financeData.length > 0) {
       sbPushExistingFinance(uname);
+    } else {
+      financeData = [];
+      localStorage.setItem(getUserScopedKey(FSK), JSON.stringify([]));
     }
 
     if (invRes.data && invRes.data.length > 0) {
@@ -5596,6 +5730,9 @@ async function sbPullUserData(username) {
       localStorage.setItem(getUserScopedKey(SIK), JSON.stringify(investData));
     } else if (investData && investData.length > 0) {
       sbPushExistingInvest(uname);
+    } else {
+      investData = [];
+      localStorage.setItem(getUserScopedKey(SIK), JSON.stringify([]));
     }
 
     if (billRes.data && billRes.data.length > 0) {
@@ -5607,9 +5744,13 @@ async function sbPullUserData(username) {
         isPaid: Boolean(d.is_paid),
         paidAt: d.paid_at
       }));
+      localStorage.setItem(getUserScopedKey(SBK), JSON.stringify(billsData));
       localStorage.setItem(SBK, JSON.stringify(billsData));
     } else if (billsData && billsData.length > 0) {
       sbPushExistingBills(uname);
+    } else {
+      billsData = [];
+      localStorage.setItem(getUserScopedKey(SBK), JSON.stringify([]));
     }
 
     if (prodRes.data && prodRes.data.length > 0) {
@@ -5621,14 +5762,19 @@ async function sbPullUserData(username) {
         market: d.market,
         img: d.image_url
       }));
+      localStorage.setItem(getUserScopedKey(SK), JSON.stringify(products));
       localStorage.setItem(SK, JSON.stringify(products));
     } else if (products && products.length > 0) {
       sbPushExistingProducts(uname);
+    } else {
+      products = [];
+      localStorage.setItem(getUserScopedKey(SK), JSON.stringify([]));
     }
 
     if (appRes.data) {
       if (typeof appRes.data.metropol_balance === 'number') {
         metropolBalance = Number(appRes.data.metropol_balance);
+        localStorage.setItem(getUserScopedKey(SMK), String(metropolBalance));
         localStorage.setItem(SMK, String(metropolBalance));
         updateMetropolUI();
       }
@@ -5887,6 +6033,104 @@ async function sbSubscribeAdminRealtime() {
     adminRealtimeSubscribed = true;
   } catch(e) {}
 }
+
+async function sbDeleteFinanceItem(id) {
+  const sb = await initSupabase();
+  if (!sb || !id) return;
+  try {
+    await sb.from('mt_finance').delete().eq('id', String(id));
+  } catch(e) {}
+}
+
+async function sbDeleteInvestItem(id) {
+  const sb = await initSupabase();
+  if (!sb || !id) return;
+  try {
+    await sb.from('mt_investments').delete().eq('id', String(id));
+  } catch(e) {}
+}
+
+async function sbDeleteBillItem(id) {
+  const sb = await initSupabase();
+  if (!sb || !id) return;
+  try {
+    await sb.from('mt_bills').delete().eq('id', String(id));
+  } catch(e) {}
+}
+
+async function sbDeleteProductItem(id) {
+  const sb = await initSupabase();
+  if (!sb || !id) return;
+  try {
+    await sb.from('mt_products').delete().eq('id', String(id));
+  } catch(e) {}
+}
+
+async function sbSaveAppStateRemote(username, data) {
+  const sb = await initSupabase();
+  if (!sb || !username) return;
+  try {
+    const payload = { username: username.toLowerCase(), updated_at: new Date().toISOString() };
+    if (typeof data.metropolBalance === 'number') payload.metropol_balance = data.metropolBalance;
+    if (data.lastBackupTime) payload.last_backup_time = data.lastBackupTime;
+    await sb.from('mt_app_state').upsert([payload]);
+  } catch(e) {}
+}
+
+async function sbInitialSync() {
+  const sb = await initSupabase();
+  if (!sb) return;
+  try {
+    const cloudUsers = await sbFetchUsersFromCloud();
+    if (cloudUsers && Array.isArray(cloudUsers) && cloudUsers.length > 0) {
+      loadUsers();
+      let changed = false;
+      cloudUsers.forEach(cu => {
+        const existing = usersList.find(x => x.username.toLowerCase() === cu.username.toLowerCase());
+        if (!existing) {
+          usersList.push(cu);
+          changed = true;
+        } else {
+          if (cu.pinHash && existing.pinHash !== cu.pinHash) {
+            existing.pinHash = cu.pinHash;
+            changed = true;
+          }
+          if (cu.secQ && existing.secQ !== cu.secQ) {
+            existing.secQ = cu.secQ;
+            changed = true;
+          }
+          if (cu.secAHash && existing.secAHash !== cu.secAHash) {
+            existing.secAHash = cu.secAHash;
+            changed = true;
+          }
+          if (cu.recoveryKeyHash && existing.recoveryKeyHash !== cu.recoveryKeyHash) {
+            existing.recoveryKeyHash = cu.recoveryKeyHash;
+            changed = true;
+          }
+          if (cu.role && existing.role !== cu.role) {
+            existing.role = cu.role;
+            changed = true;
+          }
+          if (cu.createdAt && (!existing.createdAt || existing.createdAt !== cu.createdAt)) {
+            existing.createdAt = cu.createdAt;
+            changed = true;
+          }
+        }
+      });
+      if (changed) {
+        saveUsers();
+      }
+    }
+  } catch(e) {}
+}
+
+try {
+  if (typeof window !== 'undefined') {
+    setTimeout(() => {
+      sbInitialSync();
+    }, 100);
+  }
+} catch(e) {}
 
 
 </script>
