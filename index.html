@@ -623,6 +623,9 @@
           <div style="display:inline-flex;align-items:center;gap:6px;background:rgba(124,106,247,0.2);color:var(--pri);padding:4px 12px;border-radius:20px;font-size:11.5px;font-weight:700;margin-bottom:10px">
             🛡️ SİSTEM YÖNETİCİ PANELİ
           </div>
+          <div style="display:inline-flex;align-items:center;gap:6px;background:rgba(16,185,129,0.15);color:var(--ok);border:1px solid rgba(16,185,129,0.3);padding:4px 12px;border-radius:20px;font-size:11.5px;font-weight:700;margin-bottom:10px;margin-left:6px">
+            <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ok)"></span> CANLI AKIŞ (5sn)
+          </div>
           <h1 style="font-size:24px;font-weight:800;letter-spacing:-0.5px;margin-bottom:6px">Yönetici Kontrol Merkezi</h1>
           <p style="font-size:13.5px;color:var(--txt2);max-width:540px;line-height:1.6">
             Bu ekran yalnızca sistem yöneticisine özeldir. Kayıtlı kullanıcıların kullanıcı adlarını ve güvenlik giriş loglarını buradan görüntüleyebilirsiniz. 
@@ -1235,6 +1238,7 @@ const AUTH_KEY  = (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.STORAGE_AUTH)
 const SESSION_KEY = 'mytakip_session_v2';
 const AUTH_SECRET_SALT = 'MyTakip_Sec_Salt_2026_!#';
 let usersList = [];
+var adminLiveSyncTimer = null;
 
 function sha256(ascii) {
   function rightRotate(value, amount) {
@@ -1376,7 +1380,7 @@ function clearAllAuthInputs() {
   if (btn) btn.textContent = 'Güvenlik Sorusunu Getir →';
 }
 
-const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000; 
+const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; 
 const LAST_ACTIVITY_KEY = 'mt_last_activity_v1';
 
 function updateLastActivity() {
@@ -1408,11 +1412,15 @@ function checkPageReloadLogout() {
 
     if (isReload) {
       const active = localStorage.getItem(AUTH_KEY);
-      if (active) {
+      if (active && active.toLowerCase() !== 'admin') {
         recordLoginLog(active, 'logout', 'Sayfa yenilendiği için oturum sonlandırıldı');
         localStorage.removeItem(AUTH_KEY);
         localStorage.removeItem(SESSION_KEY);
         localStorage.removeItem(LAST_ACTIVITY_KEY);
+        if (adminLiveSyncTimer) {
+          clearInterval(adminLiveSyncTimer);
+          adminLiveSyncTimer = null;
+        }
         try { if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('mt_admin_backup_prompted'); } catch(e) {}
         closeAdminBackupPrompt();
         clearAllAuthInputs();
@@ -1436,22 +1444,26 @@ try {
 
 function checkInactivityTimeout() {
   const active = localStorage.getItem(AUTH_KEY);
-  if (!active) return false;
+  if (!active || active.toLowerCase() === 'admin') return false;
 
   const lastAct = parseInt(localStorage.getItem(LAST_ACTIVITY_KEY) || '0', 10);
   const now = Date.now();
 
   if (lastAct > 0 && (now - lastAct > INACTIVITY_TIMEOUT_MS)) {
-    recordLoginLog(active, 'logout', '10 dakika boyunca işlem yapılmadığı için oturum otomatik kapatıldı (Inactivity Timeout)');
+    recordLoginLog(active, 'logout', '5 dakika boyunca işlem yapılmadığı için oturum otomatik kapatıldı (Inactivity Timeout)');
     localStorage.removeItem(AUTH_KEY);
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(LAST_ACTIVITY_KEY);
+    if (adminLiveSyncTimer) {
+      clearInterval(adminLiveSyncTimer);
+      adminLiveSyncTimer = null;
+    }
     try { if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('mt_admin_backup_prompted'); } catch(e) {}
     closeAdminBackupPrompt();
     clearAllAuthInputs();
     checkAuth();
     showAuthView('login');
-    toast('⏳ 10 dakika boyunca işlem yapmadığınız için oturumunuz güvenlik nedeniyle sonlandırıldı.', 'err');
+    toast('⏳ 5 dakika boyunca işlem yapmadığınız için oturumunuz güvenlik nedeniyle sonlandırıldı.', 'err');
     return true;
   }
   return false;
@@ -1602,6 +1614,10 @@ function checkAuth() {
       localStorage.removeItem(AUTH_KEY);
       localStorage.removeItem(SESSION_KEY);
       localStorage.removeItem(LAST_ACTIVITY_KEY);
+      if (adminLiveSyncTimer) {
+        clearInterval(adminLiveSyncTimer);
+        adminLiveSyncTimer = null;
+      }
       clearAllAuthInputs();
       recordLoginLog(activeUser, 'failed', '⚠️ Geçersiz/Yetkisiz oturum denemesi engellendi (Session Signature Mismatch)');
       if (authScreen) authScreen.classList.remove('hidden');
@@ -1684,7 +1700,6 @@ function formatUserRegDate(val) {
   return dStr + ' ' + tStr;
 }
 
-let adminLiveSyncTimer = null;
 
 function renderAdminDashboard(skipCloudSync) {
   loadUsers();
@@ -2256,6 +2271,10 @@ function handleLogout() {
   localStorage.removeItem(AUTH_KEY);
   localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem(LAST_ACTIVITY_KEY);
+  if (adminLiveSyncTimer) {
+    clearInterval(adminLiveSyncTimer);
+    adminLiveSyncTimer = null;
+  }
   try { if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('mt_admin_backup_prompted'); } catch(e) {}
   financeData = [];
   investData = [];
