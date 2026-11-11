@@ -4249,8 +4249,25 @@ document.addEventListener('keydown', e=>{
 let currentApp = 'home';
 
 function goHome() {
-  currentApp = 'home';
   const activeUser = localStorage.getItem(AUTH_KEY);
+  if (activeUser && activeUser.toLowerCase() === 'admin') {
+    currentApp = 'admin';
+    document.querySelectorAll('.sec-page').forEach(s => s.classList.remove('active'));
+    const secAdmin = document.getElementById('sec-admin');
+    if (secAdmin) secAdmin.classList.add('active');
+    document.getElementById('hdrBack').style.display    = 'none';
+    document.getElementById('hdrMktNav').style.display  = 'none';
+    document.getElementById('hdrFinNav').style.display  = 'none';
+    document.getElementById('hdrInvNav').style.display  = 'none';
+    document.getElementById('hdrMktAct').style.display  = 'none';
+    document.getElementById('hdrFinAct').style.display  = 'none';
+    document.getElementById('hdrInvAct').style.display  = 'none';
+    updateWelcomeGreeting('Admin');
+    renderAdminDashboard();
+    return;
+  }
+
+  currentApp = 'home';
   updateWelcomeGreeting(activeUser || 'Kullanıcı');
   updateHomeSummary();
   document.querySelectorAll('.sec-page').forEach(s => s.classList.remove('active'));
@@ -4265,6 +4282,12 @@ function goHome() {
 }
 
 function goApp(app) {
+  const activeUser = localStorage.getItem(AUTH_KEY);
+  if (activeUser && activeUser.toLowerCase() === 'admin') {
+    goHome();
+    return;
+  }
+
   currentApp = app;
   document.querySelectorAll('.sec-page').forEach(s => s.classList.remove('active'));
   
