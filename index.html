@@ -623,6 +623,9 @@
           <div style="display:inline-flex;align-items:center;gap:6px;background:rgba(124,106,247,0.2);color:var(--pri);padding:4px 12px;border-radius:20px;font-size:11.5px;font-weight:700;margin-bottom:10px">
             🛡️ SİSTEM YÖNETİCİ PANELİ
           </div>
+          <div id="admEnvBadge" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:11.5px;font-weight:700;margin-bottom:10px;margin-left:6px;border:1px solid rgba(245,158,11,0.3);background:rgba(245,158,11,0.12);color:#f59e0b">
+            🧪 TEST / LOCAL
+          </div>
           <div style="display:inline-flex;align-items:center;gap:6px;background:rgba(16,185,129,0.15);color:var(--ok);border:1px solid rgba(16,185,129,0.3);padding:4px 12px;border-radius:20px;font-size:11.5px;font-weight:700;margin-bottom:10px;margin-left:6px">
             <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ok)"></span> CANLI AKIŞ (5sn)
           </div>
@@ -699,7 +702,7 @@
             <span class="admRefreshSpin">🔄</span> Canlı Yenile
           </button>
         </div>
-        <div id="admUsersTableWrap" style="overflow-x:auto"></div>
+        <div id="admUsersTableWrap" class="admin-table-wrap" style="overflow-x:auto"></div>
       </div>
 
       <div style="background:var(--surf);border:1px solid var(--bdr);border-radius:20px;padding:22px">
@@ -717,7 +720,7 @@
             </button>
           </div>
         </div>
-        <div id="admLogsTableWrap" style="overflow-x:auto"></div>
+        <div id="admLogsTableWrap" class="admin-table-wrap" style="overflow-x:auto"></div>
       </div>
     </div>
   </section>
@@ -1584,6 +1587,34 @@ function clearLoginLogs() {
   toast('Giriş logları temizlendi.', 'ok');
 }
 
+function isLocalEnv() {
+  if (typeof window === 'undefined') return false;
+  const loc = window.location || {};
+  const h = (loc.hostname || loc.host || '').toLowerCase();
+  const p = (loc.protocol || '').toLowerCase();
+  if (!h && !p) return false;
+  return (
+    h === 'localhost' ||
+    h === '127.0.0.1' ||
+    p === 'file:' ||
+    h.endsWith('.local') ||
+    h.startsWith('192.168.') ||
+    h.startsWith('10.') ||
+    h.startsWith('172.16.')
+  );
+}
+
+function getDbUsername(username) {
+  if (!username) return '';
+  const uname = String(username).toLowerCase().trim();
+  if (isLocalEnv()) {
+    if (uname.startsWith('local_')) return uname;
+    return 'local_' + uname;
+  }
+  if (uname.startsWith('local_')) return uname.replace(/^local_/, '');
+  return uname;
+}
+
 function getUserScopedKey(baseKey) {
   const active = localStorage.getItem(AUTH_KEY);
   if (!active || active.toLowerCase() === 'admin') return baseKey;
@@ -1687,12 +1718,13 @@ function checkAuth() {
       }
       updateWelcomeGreeting(activeUser);
 
+      load();
       loadFinance();
       loadMetropol();
       loadInvest();
       loadInvestTrades();
       if (typeof sbPullUserData === 'function') sbPullUserData(activeUser);
-      if (currentApp === 'home') goHome();
+      goHome();
     }
   } else {
     if (authScreen) authScreen.classList.remove('hidden');
@@ -1720,6 +1752,14 @@ function formatUserRegDate(val) {
 function renderAdminDashboard(skipCloudSync) {
   loadUsers();
   updateAdminBackupStatus();
+  const envBadge = document.getElementById('admEnvBadge');
+  if (envBadge) {
+    const isLoc = isLocalEnv();
+    envBadge.innerHTML = isLoc ? '🧪 TEST / LOCAL' : '🌐 CANLI / PROD';
+    envBadge.style.color = isLoc ? '#f59e0b' : '#10b981';
+    envBadge.style.borderColor = isLoc ? 'rgba(245,158,11,0.4)' : 'rgba(16,185,129,0.4)';
+    envBadge.style.background = isLoc ? 'rgba(245,158,11,0.12)' : 'rgba(16,185,129,0.12)';
+  }
   const usersWrap = document.getElementById('admUsersTableWrap');
   const logsWrap = document.getElementById('admLogsTableWrap');
   const totalUsersEl = document.getElementById('admTotalUsers');
@@ -1862,6 +1902,8 @@ function startAdminLiveSync() {
   }, 5000);
 }
 
+let recentlyDeletedUsers = new Set();
+
 function adminResetPin(username) {
   const newPin = prompt(`"${username}" kullanıcısı için yeni 6 haneli sayısal şifre (PIN) belirleyin:`);
   if (!newPin) return;
@@ -1881,16 +1923,26 @@ function adminResetPin(username) {
   }
 }
 
-function adminDeleteUser(username) {
+async function adminDeleteUser(username) {
   if (username.toLowerCase() === 'admin') { alert('Admin hesabı silinemez!'); return; }
   if (!confirm(`"${username}" kullanıcısını silmek istediğinize emin misiniz?`)) return;
+  const uLower = username.toLowerCase();
+  recentlyDeletedUsers.add(uLower);
   loadUsers();
-  usersList = usersList.filter(x => x.username.toLowerCase() !== username.toLowerCase());
+  usersList = usersList.filter(x => x.username.toLowerCase() !== uLower);
   saveUsers();
-  if (typeof sbDeleteUserFromCloud === 'function') sbDeleteUserFromCloud(username);
+  const uKeys = ['mt_v3_', 'gg_v1_', 'mt_metropol_v1_', 'mt_invest_v1_', 'mt_invest_trades_v1_', 'mt_bills_v1_'];
+  uKeys.forEach(p => localStorage.removeItem(p + uLower));
   recordLoginLog(username, 'logout', 'Yönetici tarafından hesap silindi');
-  toast(`"${username}" kullanıcısı silindi.`, 'ok');
-  renderAdminDashboard();
+  renderAdminDashboard(true);
+  if (typeof sbDeleteUserFromCloud === 'function') {
+    await sbDeleteUserFromCloud(username);
+  }
+  loadUsers();
+  usersList = usersList.filter(x => x.username.toLowerCase() !== uLower);
+  saveUsers();
+  renderAdminDashboard(true);
+  toast(`✓ "${username}" kullanıcısı başarıyla silindi.`, 'ok');
 }
 
 function showAuthView(viewName) {
@@ -1933,6 +1985,7 @@ function completeSuccessfulLogin(user, errEl) {
   clearAllAuthInputs(); 
   recordLoginLog(user.username, 'success', 'Oturum başarıyla açıldı');
   if (typeof sbClaimActiveSession === 'function') sbClaimActiveSession(user.username);
+  currentApp = 'home';
   checkAuth();
   toast(`✓ Hoş geldiniz, ${formatUserName(user.username)}!`, 'ok');
 }
@@ -1997,7 +2050,8 @@ async function checkCloudLogin(u, pin, inputPinHash, errEl, errMsg) {
       if (errEl) { errEl.classList.add('show'); errMsg.textContent = 'Hatalı kullanıcı adı veya 6 haneli PIN!'; }
       return;
     }
-    const { data, error } = await sb.from('mt_users').select('*').eq('username', u).maybeSingle();
+    const dbUser = getDbUsername(u);
+    const { data, error } = await sb.from('mt_users').select('*').eq('username', dbUser).maybeSingle();
     if (!error && data && data.pin_hash === inputPinHash) {
       if (typeof checkConcurrentSession === 'function') {
         const sessionCheck = await checkConcurrentSession(data.username);
@@ -2154,12 +2208,6 @@ function handleRegister(e) {
   saveUsers();
   recordLoginLog(u, 'register', 'Yeni kullanıcı kaydı oluşturuldu');
 
-  const token = generateSessionToken(u, pinHash);
-  localStorage.setItem(AUTH_KEY, u);
-  localStorage.setItem(SESSION_KEY, token);
-  localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
-  if (typeof sbClaimActiveSession === 'function') sbClaimActiveSession(u);
-
   try { if (navigator.clipboard) navigator.clipboard.writeText(recoveryKey); } catch(e) {}
 
   alert(`🎉 HESABINIZ BAŞARIYLA OLUŞTURULDU!\n\n` +
@@ -2171,9 +2219,16 @@ function handleRegister(e) {
         `⚠️ Şifrenizi veya PIN kodunuzu unutursanız hesabınızı bu anahtar ile kurtarabilirsiniz.\n` +
         `Lütfen bu anahtarı güvenli bir yere not ediniz!`);
 
-  clearAllAuthInputs(); 
-  checkAuth();
-  toast(`✓ Hesabınız oluşturuldu. Hoş geldiniz, ${formatUserName(u)}!`, 'ok');
+  clearAllAuthInputs();
+  showAuthView('login');
+  const loginUserEl = document.getElementById('authUsername');
+  if (loginUserEl) loginUserEl.value = u;
+  const loginPinEl = document.getElementById('authPin');
+  if (loginPinEl) {
+    loginPinEl.value = '';
+    setTimeout(() => loginPinEl.focus(), 150);
+  }
+  toast('🎉 Hesabınız başarıyla oluşturuldu! Lütfen 6 haneli şifrenizi girerek giriş yapın.', 'ok');
 }
 
 let forgotAttempts = 0;
@@ -2195,14 +2250,15 @@ function loadForgotSecQ() {
     if (qWrap) qWrap.style.display = 'block';
     if (pinWrap) pinWrap.style.display = 'block';
     if (qLbl) qLbl.textContent = '1. Seçenek: Güvenlik Sorunuz (' + (user.secQ || 'En sevdiğin renk?') + ')';
-    if (btn) btn.textContent = 'Şifremi Sıfırla ve Giriş Yap →';
+    if (btn) btn.textContent = 'Şifremi Sıfırla →';
   } else if (typeof initSupabase === 'function') {
     initSupabase().then(sb => {
       if (!sb) {
         if (errEl) { errEl.classList.add('show'); document.getElementById('forgotErrorMsg').textContent = 'Kullanıcı bulunamadı!'; }
         return;
       }
-      sb.from('mt_users').select('*').eq('username', u).maybeSingle().then(({ data }) => {
+      const dbUser = getDbUsername(u);
+      sb.from('mt_users').select('*').eq('username', dbUser).maybeSingle().then(({ data }) => {
         if (data) {
           const cu = {
             username: data.username,
@@ -2306,15 +2362,19 @@ function handleForgot(e) {
   delete user.pin;
   saveUsers();
 
-  const token = generateSessionToken(user.username, user.pinHash);
-  localStorage.setItem(AUTH_KEY, user.username);
-  localStorage.setItem(SESSION_KEY, token);
-  localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
-  if (typeof sbClaimActiveSession === 'function') sbClaimActiveSession(user.username);
+  recordLoginLog(user.username, 'reset', 'Kullanıcı şifresini sıfırladı');
+  if (typeof sbSyncUserToCloud === 'function') sbSyncUserToCloud(user);
+
   clearAllAuthInputs();
-  
-  checkAuth();
-  toast('✓ Şifreniz başarıyla sıfırlandı ve güvenli oturum açıldı!', 'ok');
+  showAuthView('login');
+  const loginUserEl = document.getElementById('authUsername');
+  if (loginUserEl) loginUserEl.value = user.username;
+  const loginPinEl = document.getElementById('authPin');
+  if (loginPinEl) {
+    loginPinEl.value = '';
+    setTimeout(() => loginPinEl.focus(), 150);
+  }
+  toast('✓ Şifreniz başarıyla sıfırlandı! Lütfen yeni 6 haneli şifrenizle giriş yapın.', 'ok');
 }
 
 function handleLogout() {
@@ -2338,6 +2398,10 @@ function handleLogout() {
   billsData = [];
   products = [];
   metropolBalance = 0;
+  currentApp = 'home';
+  document.querySelectorAll('.sec-page').forEach(s => s.classList.remove('active'));
+  const homeSec = document.getElementById('sec-home');
+  if (homeSec) homeSec.classList.add('active');
   closeAdminBackupPrompt();
   clearAllAuthInputs(); 
   checkAuth();
@@ -2409,10 +2473,6 @@ function loadInvest() {
   const key = getUserScopedKey(SIK);
   try {
     let raw = localStorage.getItem(key);
-    if (!raw && key !== SIK) {
-      
-      raw = localStorage.getItem(SIK);
-    }
     investData = JSON.parse(raw) || [];
   } catch(e) { investData = []; }
   renderInvest();
@@ -2713,9 +2773,6 @@ function loadInvestTrades() {
   const key = getUserScopedKey(SITK);
   try {
     let raw = localStorage.getItem(key);
-    if (!raw && key !== SITK) {
-      raw = localStorage.getItem(SITK);
-    }
     investTrades = JSON.parse(raw) || [];
   } catch(e) { investTrades = []; }
 }
@@ -3308,9 +3365,6 @@ function loadBills() {
   const key = getUserScopedKey(SBK);
   try {
     let raw = localStorage.getItem(key);
-    if (!raw && key !== SBK) {
-      raw = localStorage.getItem(SBK);
-    }
     billsData = JSON.parse(raw) || [];
   } catch(e) { billsData = []; }
   renderBills();
@@ -3319,7 +3373,6 @@ function loadBills() {
 
 function saveBills() {
   localStorage.setItem(getUserScopedKey(SBK), JSON.stringify(billsData));
-  localStorage.setItem(SBK, JSON.stringify(billsData));
   renderBills();
   renderBillsReminder();
   const activeUser = localStorage.getItem(AUTH_KEY);
@@ -3559,16 +3612,12 @@ function load() {
   const key = getUserScopedKey(SK);
   try {
     let raw = localStorage.getItem(key);
-    if (!raw && key !== SK) {
-      raw = localStorage.getItem(SK);
-    }
     products = JSON.parse(raw) || [];
   } catch(e) { products = []; }
   buildColors();
 }
 function save() {
   localStorage.setItem(getUserScopedKey(SK), JSON.stringify(products));
-  localStorage.setItem(SK, JSON.stringify(products));
   buildColors();
   const activeUser = localStorage.getItem(AUTH_KEY);
   if (typeof sbPushExistingProducts === 'function' && activeUser) {
@@ -4886,9 +4935,6 @@ function loadMetropol() {
   const key = getUserScopedKey(SMK);
   try {
     let raw = localStorage.getItem(key);
-    if (!raw && key !== SMK) {
-      raw = localStorage.getItem(SMK);
-    }
     metropolBalance = parseFloat(raw) || 0;
   } catch(e) { metropolBalance = 0; }
   renderMetropol();
@@ -4898,7 +4944,6 @@ function saveMetropol(val) {
   metropolBalance = Math.round(val * 100) / 100;
   const key = getUserScopedKey(SMK);
   localStorage.setItem(key, metropolBalance.toString());
-  localStorage.setItem(SMK, metropolBalance.toString());
   renderMetropol();
   const active = localStorage.getItem(AUTH_KEY);
   if (typeof sbSaveAppStateRemote === 'function' && active) {
@@ -5069,9 +5114,6 @@ function loadFinance() {
   const key = getUserScopedKey(FSK);
   try {
     let raw = localStorage.getItem(key);
-    if (!raw && key !== FSK) {
-      raw = localStorage.getItem(FSK);
-    }
     financeData = JSON.parse(raw) || [];
   } catch(e) { financeData = []; }
   let changed = false;
@@ -5085,7 +5127,6 @@ function loadFinance() {
 }
 function saveFinance() {
   localStorage.setItem(getUserScopedKey(FSK), JSON.stringify(financeData));
-  localStorage.setItem(FSK, JSON.stringify(financeData));
   const activeUser = localStorage.getItem(AUTH_KEY);
   if (typeof sbPushExistingFinance === 'function' && activeUser) {
     sbPushExistingFinance(activeUser);
@@ -6004,15 +6045,15 @@ async function sbPullUserData(username) {
   const sb = await initSupabase();
   if (!sb) return;
 
-  const uname = username.toLowerCase();
+  const dbUser = getDbUsername(username);
 
   try {
     const [finRes, invRes, billRes, prodRes, appRes] = await Promise.all([
-      sb.from('mt_finance').select('*').eq('username', uname),
-      sb.from('mt_investments').select('*').eq('username', uname),
-      sb.from('mt_bills').select('*').eq('username', uname),
-      sb.from('mt_products').select('*').eq('username', uname),
-      sb.from('mt_app_state').select('*').eq('username', uname).maybeSingle()
+      sb.from('mt_finance').select('*').eq('username', dbUser),
+      sb.from('mt_investments').select('*').eq('username', dbUser),
+      sb.from('mt_bills').select('*').eq('username', dbUser),
+      sb.from('mt_products').select('*').eq('username', dbUser),
+      sb.from('mt_app_state').select('*').eq('username', dbUser).maybeSingle()
     ]);
 
     if (finRes.data && finRes.data.length > 0) {
@@ -6027,8 +6068,6 @@ async function sbPullUserData(username) {
       }));
       localStorage.setItem(getUserScopedKey(FSK), JSON.stringify(financeData));
       localStorage.setItem(FSK, JSON.stringify(financeData));
-    } else if (financeData && financeData.length > 0) {
-      sbPushExistingFinance(uname);
     } else {
       financeData = [];
       localStorage.setItem(getUserScopedKey(FSK), JSON.stringify([]));
@@ -6044,8 +6083,6 @@ async function sbPullUserData(username) {
         date: d.date
       }));
       localStorage.setItem(getUserScopedKey(SIK), JSON.stringify(investData));
-    } else if (investData && investData.length > 0) {
-      sbPushExistingInvest(uname);
     } else {
       investData = [];
       localStorage.setItem(getUserScopedKey(SIK), JSON.stringify([]));
@@ -6062,8 +6099,6 @@ async function sbPullUserData(username) {
       }));
       localStorage.setItem(getUserScopedKey(SBK), JSON.stringify(billsData));
       localStorage.setItem(SBK, JSON.stringify(billsData));
-    } else if (billsData && billsData.length > 0) {
-      sbPushExistingBills(uname);
     } else {
       billsData = [];
       localStorage.setItem(getUserScopedKey(SBK), JSON.stringify([]));
@@ -6080,8 +6115,6 @@ async function sbPullUserData(username) {
       }));
       localStorage.setItem(getUserScopedKey(SK), JSON.stringify(products));
       localStorage.setItem(SK, JSON.stringify(products));
-    } else if (products && products.length > 0) {
-      sbPushExistingProducts(uname);
     } else {
       products = [];
       localStorage.setItem(getUserScopedKey(SK), JSON.stringify([]));
@@ -6112,9 +6145,10 @@ async function sbPullUserData(username) {
 async function sbPushExistingFinance(username) {
   const sb = await initSupabase();
   if (!sb || !financeData || !financeData.length) return;
+  const dbUser = getDbUsername(username);
   const rows = financeData.map(f => ({
     id: String(f.id),
-    username: username.toLowerCase(),
+    username: dbUser,
     type: f.type || 'gider',
     category: f.catId || f.cat || '',
     title: f.desc || f.title || '',
@@ -6127,9 +6161,10 @@ async function sbPushExistingFinance(username) {
 async function sbPushExistingInvest(username) {
   const sb = await initSupabase();
   if (!sb || !investData || !investData.length) return;
+  const dbUser = getDbUsername(username);
   const rows = investData.map(i => ({
     id: String(i.id),
-    username: username.toLowerCase(),
+    username: dbUser,
     symbol: i.symbol || '',
     type: i.type || 'hisse',
     lots: Number(i.lots || 0),
@@ -6142,9 +6177,10 @@ async function sbPushExistingInvest(username) {
 async function sbPushExistingBills(username) {
   const sb = await initSupabase();
   if (!sb || !billsData || !billsData.length) return;
+  const dbUser = getDbUsername(username);
   const rows = billsData.map(b => ({
     id: String(b.id),
-    username: username.toLowerCase(),
+    username: dbUser,
     title: b.title || '',
     amount: Number(b.amount || 0),
     due_day: Number(b.dueDay || 1),
@@ -6157,9 +6193,10 @@ async function sbPushExistingBills(username) {
 async function sbPushExistingProducts(username) {
   const sb = await initSupabase();
   if (!sb || !products || !products.length) return;
+  const dbUser = getDbUsername(username);
   const rows = products.map(p => ({
     id: String(p.id),
-    username: username.toLowerCase(),
+    username: dbUser,
     name: p.name || '',
     category: p.category || '',
     price: Number(p.price || 0),
@@ -6172,9 +6209,10 @@ async function sbPushExistingProducts(username) {
 async function sbSyncUserToCloud(user) {
   const sb = await initSupabase();
   if (!sb || !user || !user.username) return;
+  const dbUser = getDbUsername(user.username);
   try {
     await sb.from('mt_users').upsert([{
-      username: user.username.toLowerCase(),
+      username: dbUser,
       pin_hash: user.pinHash,
       sec_q: user.secQ || '',
       sec_a_hash: user.secAHash || '',
@@ -6207,9 +6245,10 @@ async function sbFetchUsersFromCloud() {
 async function sbRecordAuditLog(username, status, message) {
   const sb = await initSupabase();
   if (!sb) return;
+  const dbUser = getDbUsername(username);
   try {
     await sb.from('mt_login_logs').insert([{
-      username: username || 'bilinmeyen',
+      username: dbUser || 'bilinmeyen',
       status: status || 'info',
       message: message || ''
     }]);
@@ -6222,12 +6261,17 @@ async function sbFetchAuditLogsFromCloud(limit = 100) {
   try {
     const { data, error } = await sb.from('mt_login_logs').select('*').order('created_at', { ascending: false }).limit(limit);
     if (!error && Array.isArray(data)) {
-      return data.map(l => {
+      const isLocal = isLocalEnv();
+      const filtered = data.filter(l => {
+        const isLoc = (l.username || '').startsWith('local_');
+        return isLocal ? isLoc : !isLoc;
+      });
+      return filtered.map(l => {
         const d = l.created_at ? new Date(l.created_at) : new Date();
         const dateStr = d.toLocaleDateString('tr-TR', { day:'2-digit', month:'long', year:'numeric' }) + ' ' + d.toLocaleTimeString('tr-TR', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
         return {
           id: l.id,
-          username: l.username,
+          username: (l.username || '').replace(/^local_/, ''),
           status: l.status,
           message: l.message,
           dateStr: dateStr,
@@ -6243,15 +6287,29 @@ async function sbClearAuditLogs() {
   const sb = await initSupabase();
   if (!sb) return;
   try {
-    await sb.from('mt_login_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    const isLocal = isLocalEnv();
+    if (isLocal) {
+      await sb.from('mt_login_logs').delete().like('username', 'local_%');
+    } else {
+      await sb.from('mt_login_logs').delete().not('username', 'like', 'local_%');
+    }
   } catch(e) {}
 }
 
 async function sbDeleteUserFromCloud(username) {
   const sb = await initSupabase();
   if (!sb || !username) return;
+  const dbUser = getDbUsername(username);
   try {
-    await sb.from('mt_users').delete().eq('username', username.toLowerCase());
+    await Promise.all([
+      sb.from('mt_users').delete().eq('username', dbUser),
+      sb.from('mt_finance').delete().eq('username', dbUser),
+      sb.from('mt_investments').delete().eq('username', dbUser),
+      sb.from('mt_bills').delete().eq('username', dbUser),
+      sb.from('mt_products').delete().eq('username', dbUser),
+      sb.from('mt_app_state').delete().eq('username', dbUser),
+      sb.from('mt_app_state').delete().eq('username', 'session:' + dbUser)
+    ]);
   } catch(e) {}
 }
 
@@ -6273,7 +6331,8 @@ async function sbSyncAdminDashboard() {
     if (cloudUsers && Array.isArray(cloudUsers) && cloudUsers.length > 0) {
       if (typeof loadUsers === 'function') loadUsers();
       let changed = false;
-      cloudUsers.forEach(cu => {
+      const validCloudUsers = cloudUsers.filter(cu => !recentlyDeletedUsers.has((cu.username || '').toLowerCase()));
+      validCloudUsers.forEach(cu => {
         const existing = usersList.find(x => x.username.toLowerCase() === cu.username.toLowerCase());
         if (!existing) {
           usersList.push(cu);
@@ -6385,8 +6444,9 @@ async function sbDeleteProductItem(id) {
 async function sbSaveAppStateRemote(username, data) {
   const sb = await initSupabase();
   if (!sb || !username) return;
+  const dbUser = getDbUsername(username);
   try {
-    const payload = { username: username.toLowerCase(), updated_at: new Date().toISOString() };
+    const payload = { username: dbUser, updated_at: new Date().toISOString() };
     if (typeof data.metropolBalance === 'number') payload.metropol_balance = data.metropolBalance;
     if (data.lastBackupTime) payload.last_backup_time = data.lastBackupTime;
     await sb.from('mt_app_state').upsert([payload]);
@@ -6401,7 +6461,8 @@ async function sbInitialSync() {
     if (cloudUsers && Array.isArray(cloudUsers) && cloudUsers.length > 0) {
       loadUsers();
       let changed = false;
-      cloudUsers.forEach(cu => {
+      const validCloudUsers = cloudUsers.filter(cu => !recentlyDeletedUsers.has((cu.username || '').toLowerCase()));
+      validCloudUsers.forEach(cu => {
         const existing = usersList.find(x => x.username.toLowerCase() === cu.username.toLowerCase());
         if (!existing) {
           usersList.push(cu);
@@ -6460,7 +6521,7 @@ async function checkConcurrentSession(username) {
     const sb = await initSupabase();
     if (!sb) return { allowed: true };
     const clientSid = getClientSid();
-    const sessionKey = 'session:' + username.toLowerCase();
+    const sessionKey = 'session:' + getDbUsername(username);
     const { data, error } = await sb.from('mt_app_state').select('*').eq('username', sessionKey).maybeSingle();
     if (!error && data) {
       const activeSid = Math.floor(Number(data.metropol_balance || 0));
@@ -6482,7 +6543,7 @@ async function sbClaimActiveSession(username) {
     const sb = await initSupabase();
     if (!sb) return;
     const clientSid = getClientSid();
-    const sessionKey = 'session:' + username.toLowerCase();
+    const sessionKey = 'session:' + getDbUsername(username);
     await sb.from('mt_app_state').upsert([{
       username: sessionKey,
       metropol_balance: clientSid,
@@ -6496,7 +6557,7 @@ async function sbReleaseActiveSession(username) {
   try {
     const sb = await initSupabase();
     if (!sb) return;
-    const sessionKey = 'session:' + username.toLowerCase();
+    const sessionKey = 'session:' + getDbUsername(username);
     await sb.from('mt_app_state').delete().eq('username', sessionKey);
   } catch(e) {}
 }
