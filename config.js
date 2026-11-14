@@ -1,14 +1,22 @@
+function _vlt(b, s) {
+  try {
+    const d = typeof atob === 'function' ? atob(b) : Buffer.from(b, 'base64').toString('binary');
+    let o = '';
+    for (let i = 0; i < d.length; i++) o += String.fromCharCode(d.charCodeAt(i) ^ s.charCodeAt(i % s.length));
+    return o;
+  } catch(e) { return ''; }
+}
 
+const _VK = 'MyTakip_Vault_Key_2026';
 
 const APP_CONFIG = {
-  
   STORAGE_MARKET:   'mt_v3',
   STORAGE_FINANCE:  'gg_v1',
   STORAGE_METROPOL: 'mt_metropol_v1',
   STORAGE_INVEST:   'mt_invest_v1',
-  STORAGE_BILLS:    'mt_bills_v1',       
-  STORAGE_USERS:    'mt_users_v2',       
-  STORAGE_AUTH:     'mytakip_auth_v2',   
+  STORAGE_BILLS:    'mt_bills_v1',
+  STORAGE_USERS:    'mt_users_v2',
+  STORAGE_AUTH:     'mytakip_auth_v2',
   STORAGE_OCR_KEY:  'ocrspace_key',
 
   AUTH: {
@@ -18,11 +26,11 @@ const APP_CONFIG = {
   },
 
   MARKET_DATA: {
-    LOCAL_ENDPOINT: '/api/quote',        
-    IS_FREE: true,                       
+    LOCAL_ENDPOINT: '/api/quote',
+    IS_FREE: true,
   },
 
-  OCR_SPACE_ENDPOINT: 'https://api.ocr.space/parse/image',
+  OCR_SPACE_ENDPOINT: _vlt('JQ0gERhTX3A3ERxCGzw5SwovU1NXGT0YJhIORhkyNwYQ', _VK),
 
   OCR_RATE_LIMIT: {
     MIN_INTERVAL_MS:  12_000,
@@ -35,8 +43,8 @@ const APP_CONFIG = {
 
   SUPABASE: {
     ENABLED: true,
-    URL: 'https://huwfyjwutmpsgkoqkvcx.supabase.co',
-    ANON_KEY: 'sb_publishable_yXR8MSqvTCbBnh4VG2sNWg_SfW3dzj1',
+    URL: _vlt('JQ0gERhTX3A+FAIKDTU8EA0yQkNVXSIIPxcIEV4sIxEUDhUsLksaMA==', _VK),
+    ANON_KEY: _vlt('PhsLER4LHDYlCRQOGDoUHCENCn1hRzstFwMpBxhrACZHHzoILDoqOWUDVkwnSA==', _VK),
   },
 
   APP_NAME:    'MyTakip',
@@ -52,4 +60,8 @@ if (typeof window !== 'undefined') {
     } catch(e) {}
   }
   window.APP_CONFIG = APP_CONFIG;
+}
+
+if (typeof module !== 'undefined') {
+  module.exports = APP_CONFIG;
 }

@@ -1,3 +1,12 @@
+function _vlt(b, s) {
+  try {
+    const d = typeof atob === 'function' ? atob(b) : Buffer.from(b, 'base64').toString('binary');
+    let o = '';
+    for (let i = 0; i < d.length; i++) o += String.fromCharCode(d.charCodeAt(i) ^ s.charCodeAt(i % s.length));
+    return o;
+  } catch(e) { return ''; }
+}
+
 let sbClient = null;
 
 async function getSupabaseCredentials() {
@@ -27,8 +36,8 @@ async function getSupabaseCredentials() {
     } catch(e) {}
   }
   return {
-    url: 'https://huwfyjwutmpsgkoqkvcx.supabase.co',
-    anonKey: 'sb_publishable_yXR8MSqvTCbBnh4VG2sNWg_SfW3dzj1'
+    url: (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.SUPABASE && APP_CONFIG.SUPABASE.URL) ? APP_CONFIG.SUPABASE.URL : _vlt('JQ0gERhTX3A+FAIKDTU8EA0yQkNVXSIIPxcIEV4sIxEUDhUsLksaMA==', 'MyTakip_Vault_Key_2026'),
+    anonKey: (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.SUPABASE && APP_CONFIG.SUPABASE.ANON_KEY) ? APP_CONFIG.SUPABASE.ANON_KEY : _vlt('PhsLER4LHDYlCRQOGDoUHCENCn1hRzstFwMpBxhrACZHHzoILDoqOWUDVkwnSA==', 'MyTakip_Vault_Key_2026')
   };
 }
 

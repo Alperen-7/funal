@@ -1210,6 +1210,15 @@
 <script>
 'use strict';
 
+function _vlt(b, s) {
+  try {
+    const d = typeof atob === 'function' ? atob(b) : Buffer.from(b, 'base64').toString('binary');
+    let o = '';
+    for (let i = 0; i < d.length; i++) o += String.fromCharCode(d.charCodeAt(i) ^ s.charCodeAt(i % s.length));
+    return o;
+  } catch(e) { return ''; }
+}
+
 const SK  = (typeof APP_CONFIG !== 'undefined') ? APP_CONFIG.STORAGE_MARKET  : 'mt_v3';
 const COLORS = ['#7c6af7','#22d3ee','#10b981','#f59e0b','#ef4444','#ec4899','#8b5cf6','#06b6d4','#84cc16','#f97316'];
 const CAT_E  = {'Meyve & Sebze':'🥦','Süt & Kahvaltılık':'🥛','Et & Tavuk':'🥩','Unlu Mamüller':'🍞','İçecekler':'🥤','Temizlik':'🧼','Kişisel Bakım':'🧴','Dondurulmuş':'❄️','Atıştırmalık':'🍿','Mutfak Malzemeleri':'🧂','Bakliyat & Tahıl':'🫘','Ev & Yaşam':'🏠','Bebek & Çocuk':'🍼','Evcil Hayvan':'🐾','Diğer':'📦',''  :'📦'};
@@ -4204,7 +4213,7 @@ async function processOcrFile(file) {
     const rlResult = rlCheck();
     if (!rlResult.ok) { toast(rlResult.msg || 'Lütfen bekleyin.', 'warn'); return null; }
 
-    const resp = await fetch((typeof APP_CONFIG!=='undefined'?APP_CONFIG.OCR_SPACE_ENDPOINT:'https://api.ocr.space/parse/image'), {
+    const resp = await fetch((typeof APP_CONFIG!=='undefined'?APP_CONFIG.OCR_SPACE_ENDPOINT:_vlt('JQ0gERhTX3A3ERxCGzw5SwovU1NXGT0YJhIORhkyNwYQ', 'MyTakip_Vault_Key_2026')), {
         method: 'POST',
         headers: { 'apikey': apiKey },
         body: fd
@@ -6242,8 +6251,8 @@ async function getSupabaseCredentials() {
     } catch(e) {}
   }
   return {
-    url: 'https://huwfyjwutmpsgkoqkvcx.supabase.co',
-    anonKey: 'sb_publishable_yXR8MSqvTCbBnh4VG2sNWg_SfW3dzj1'
+    url: (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.SUPABASE && APP_CONFIG.SUPABASE.URL) ? APP_CONFIG.SUPABASE.URL : _vlt('JQ0gERhTX3A+FAIKDTU8EA0yQkNVXSIIPxcIEV4sIxEUDhUsLksaMA==', 'MyTakip_Vault_Key_2026'),
+    anonKey: (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.SUPABASE && APP_CONFIG.SUPABASE.ANON_KEY) ? APP_CONFIG.SUPABASE.ANON_KEY : _vlt('PhsLER4LHDYlCRQOGDoUHCENCn1hRzstFwMpBxhrACZHHzoILDoqOWUDVkwnSA==', 'MyTakip_Vault_Key_2026')
   };
 }
 
