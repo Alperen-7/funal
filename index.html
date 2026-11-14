@@ -899,6 +899,14 @@
       </div>
 
       <div class="ocr-results" id="ocrResults">
+        <div id="ocrBrainBanner" class="ocr-brain-banner">
+          <div class="ocr-brain-icon">🧠</div>
+          <div class="ocr-brain-info">
+            <div class="ocr-brain-title">Akıllı OCR Öğrenme Devrede</div>
+            <div class="ocr-brain-desc">Düzelttiğiniz ve onayladığınız ürünler hafızaya kaydedilir, sonraki fişlerde otomatik tanınır.</div>
+          </div>
+          <div class="ocr-brain-count" id="ocrBrainCountBadge">0 Kural</div>
+        </div>
         <div class="ocr-results-title">Tespit Edilen Ürünler — <span id="ocrSelCount">0</span> seçili (<span id="ocrSelTotal" style="color:var(--pri-h);font-weight:700">0,00 ₺</span>)</div>
         <div id="ocrItemList"></div>
         <div style="margin: 10px 0;">
@@ -4086,6 +4094,7 @@ function openOCR() {
     inp.value = saved;
     document.getElementById('ocrApiStatus').textContent = saved ? '✓ Kayıtlı API anahtarı kullanılıyor.' : '';
   }
+  updateOcrBrainBadge();
   resetOCR();
 }
 function closeOCR() { document.getElementById('ocrOv').classList.remove('open'); resetOCR(); }
@@ -4248,6 +4257,181 @@ async function processOcrFile(file) {
   }
 }
 
+function normalizeOcrKey(str) {
+  if (!str) return '';
+  return str.toLowerCase()
+    .replace(/[çÇ]/g, 'c')
+    .replace(/[ğĞ]/g, 'g')
+    .replace(/[ıİi]/g, 'i')
+    .replace(/[öÖ]/g, 'o')
+    .replace(/[şŞ]/g, 's')
+    .replace(/[üÜ]/g, 'u')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function ocrSimilarity(s1, s2) {
+  if (!s1 || !s2) return 0;
+  if (s1 === s2) return 1;
+  const a = s1.toLowerCase().trim();
+  const b = s2.toLowerCase().trim();
+  if (a === b) return 1;
+  const m = a.length, n = b.length;
+  if (m === 0 || n === 0) return 0;
+  const d = [];
+  for (let i = 0; i <= m; i++) d[i] = [i];
+  for (let j = 0; j <= n; j++) d[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+    }
+  }
+  const maxLen = Math.max(m, n);
+  return (maxLen - d[m][n]) / maxLen;
+}
+
+function getOcrBrain() {
+  try {
+    const raw = localStorage.getItem('mt_ocr_brain_v1');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        if (!parsed.products) parsed.products = {};
+        if (!parsed.markets) parsed.markets = {};
+        if (!parsed.stats) parsed.stats = { totalLearned: 0, totalApplied: 0 };
+        return parsed;
+      }
+    }
+  } catch(e) {}
+  return { products: {}, markets: {}, stats: { totalLearned: 0, totalApplied: 0 } };
+}
+
+function saveOcrBrain(brain) {
+  try {
+    if (!brain || typeof brain !== 'object') return;
+    const keys = Object.keys(brain.products || {});
+    if (keys.length > 500) {
+      const sorted = keys.sort((a, b) => (brain.products[a].lastUsed || 0) - (brain.products[b].lastUsed || 0));
+      for (let i = 0; i < sorted.length - 500; i++) {
+        delete brain.products[sorted[i]];
+      }
+    }
+    brain.stats = brain.stats || {};
+    brain.stats.totalLearned = Object.keys(brain.products || {}).length;
+    localStorage.setItem('mt_ocr_brain_v1', JSON.stringify(brain));
+    updateOcrBrainBadge();
+  } catch(e) {}
+}
+
+function updateOcrBrainBadge() {
+  try {
+    const badge = document.getElementById('ocrBrainCountBadge');
+    if (badge) {
+      const brain = getOcrBrain();
+      const count = (brain.stats && brain.stats.totalLearned) ? brain.stats.totalLearned : Object.keys(brain.products || {}).length;
+      badge.textContent = count + ' Kural Öğrenildi';
+    }
+  } catch(e) {}
+}
+
+function learnOcrProduct(rawText, correctedName, price, market) {
+  if (!rawText || !correctedName) return;
+  const rawKey = normalizeOcrKey(rawText);
+  if (!rawKey || rawKey.length < 2) return;
+  const cleanName = correctedName.trim().slice(0, 100);
+  if (!cleanName || cleanName.length < 2) return;
+  const brain = getOcrBrain();
+  const existing = brain.products[rawKey];
+  const count = existing ? (existing.count || 1) + 1 : 1;
+  brain.products[rawKey] = {
+    name: cleanName,
+    count: count,
+    price: price > 0 ? price : (existing ? existing.price : null),
+    market: market || (existing ? existing.market : ''),
+    lastUsed: Date.now()
+  };
+  const normCorrected = normalizeOcrKey(cleanName);
+  if (normCorrected && normCorrected !== rawKey) {
+    brain.products[normCorrected] = {
+      name: cleanName,
+      count: count,
+      price: price > 0 ? price : null,
+      market: market || '',
+      lastUsed: Date.now()
+    };
+  }
+  saveOcrBrain(brain);
+}
+
+function learnOcrMarket(receiptText, marketName) {
+  if (!receiptText || !marketName) return;
+  const cleanMkt = marketName.trim().slice(0, 50);
+  if (!cleanMkt || cleanMkt.length < 2) return;
+  const lines = receiptText.split('\n').slice(0, 8);
+  const brain = getOcrBrain();
+  lines.forEach(l => {
+    const norm = normalizeOcrKey(l);
+    if (norm && norm.length >= 4 && !/^(fis|fatura|tarih|saat|kasa|pos|toplam)/i.test(norm)) {
+      brain.markets[norm.slice(0, 40)] = cleanMkt;
+    }
+  });
+  saveOcrBrain(brain);
+}
+
+function detectReceiptMarket(rawText) {
+  if (!rawText) return '';
+  const lines = rawText.split('\n').slice(0, 10);
+  const brain = getOcrBrain();
+  for (let l of lines) {
+    const norm = normalizeOcrKey(l);
+    if (!norm) continue;
+    for (let k in brain.markets) {
+      if (norm.includes(k) || ocrSimilarity(norm, k) >= 0.82) {
+        return brain.markets[k];
+      }
+    }
+    if (/\bb[i!1\s]?m\b|birlesik\s*magaza/i.test(norm)) return 'BİM';
+    if (/\bm[i1]gros\b|macrocenter/i.test(norm)) return 'MİGROS';
+    if (/\ba\s*[-.]?\s*101\b|yeni\s*magazacilik/i.test(norm)) return 'A101';
+    if (/\bs[o0]k\b|sok\s*market/i.test(norm)) return 'ŞOK';
+    if (/carrefour/i.test(norm)) return 'CARREFOURSA';
+    if (/tarim\s*kredi|kooperatif/i.test(norm)) return 'TARIM KREDİ';
+    if (/f[i!1]le\s*market|file/i.test(norm)) return 'FİLE';
+    if (/cagdas|cagdaş/i.test(norm)) return 'ÇAĞDAŞ';
+    if (/hakmar/i.test(norm)) return 'HAKMAR';
+    if (/pehlivanoglu/i.test(norm)) return 'PEHLİVANOĞLU';
+  }
+  return '';
+}
+
+function applyOcrLearning(rawLine, currentName) {
+  const norm = normalizeOcrKey(rawLine || currentName);
+  if (!norm || norm.length < 2) return { name: currentName, isLearned: false, matchScore: 0 };
+  const brain = getOcrBrain();
+  if (brain.products[norm]) {
+    const item = brain.products[norm];
+    item.lastUsed = Date.now();
+    saveOcrBrain(brain);
+    return { name: item.name, isLearned: true, matchScore: 100, price: item.price };
+  }
+  let bestMatch = null;
+  let bestSim = 0;
+  for (let k in brain.products) {
+    const sim = ocrSimilarity(norm, k);
+    if (sim > bestSim && sim >= 0.78) {
+      bestSim = sim;
+      bestMatch = brain.products[k];
+    }
+  }
+  if (bestMatch && bestSim >= 0.78) {
+    bestMatch.lastUsed = Date.now();
+    saveOcrBrain(brain);
+    return { name: bestMatch.name, isLearned: true, matchScore: Math.round(bestSim * 100), price: bestMatch.price };
+  }
+  return { name: currentName, isLearned: false, matchScore: 0 };
+}
 
 function isWeightOrQuantityLine(s) {
   if (!s) return false;
@@ -4364,6 +4548,12 @@ function normalizeTurkishReceiptName(name) {
 }
 
 function parseReceiptText(raw) {
+  const detectedMarket = detectReceiptMarket(raw);
+  const mktInp = typeof document !== 'undefined' ? document.getElementById('ocrMkt') : null;
+  if (mktInp && detectedMarket && (!mktInp.value || mktInp.value.trim() === '')) {
+    mktInp.value = detectedMarket;
+  }
+
   const cleanedRaw = raw
     .replace(/,\s*[oO](\d)/g, ',0$1')
     .replace(/,\s*[oO]\b/g, ',00')
@@ -4413,6 +4603,24 @@ function parseReceiptText(raw) {
   const rawLines = cleanedRaw.split('\n').map(l => l.trim()).filter(l => l.length > 1);
   const found = [];
 
+  function pushOcrItem(name, price, rawLine) {
+    let learned = applyOcrLearning(rawLine || name, name);
+    let finalName = learned.name || name;
+    let finalPrice = price;
+    if ((!finalPrice || finalPrice <= 0) && learned.price) {
+      finalPrice = learned.price;
+    }
+    found.push({
+      name: finalName,
+      price: finalPrice,
+      selected: true,
+      id: uid(),
+      rawLine: rawLine || name,
+      learned: learned.isLearned,
+      matchScore: learned.matchScore
+    });
+  }
+
   function getFallbackPrice(name) {
     if (knownPriceMap[name]) return knownPriceMap[name];
     const prev = found.find(it => it.name === name && it.price > 0);
@@ -4438,7 +4646,7 @@ function parseReceiptText(raw) {
           if (p && p <= 5 && p !== 2.9) { price = p; break; }
         }
       }
-      found.push({ name: 'Poşet', price, selected: true, id: uid() });
+      pushOcrItem('Poşet', price, line);
       i++;
       continue;
     }
@@ -4467,7 +4675,7 @@ function parseReceiptText(raw) {
         if (!finalPrice) finalPrice = getFallbackPrice(name);
 
         if (finalPrice && finalPrice < 600 && isValidProductName(name)) {
-          found.push({ name, price: finalPrice, selected: true, id: uid() });
+          pushOcrItem(name, finalPrice, nextLine);
           i += 2;
           continue;
         }
@@ -4498,7 +4706,7 @@ function parseReceiptText(raw) {
           if (p && calcP && p > 200 && calcP < 150) finalP = calcP;
 
           if (finalP && finalP < 600 && isValidProductName(name)) {
-            found.push({ name, price: finalP, selected: true, id: uid() });
+            pushOcrItem(name, finalP, prodLine);
             i += 3;
             continue;
           }
@@ -4512,7 +4720,7 @@ function parseReceiptText(raw) {
           if (!p) p = getFallbackPrice(name);
 
           if (p && p < 600 && isValidProductName(name)) {
-            found.push({ name, price: p, selected: true, id: uid() });
+            pushOcrItem(name, p, nextLine);
             i += 2;
             continue;
           }
@@ -4531,7 +4739,7 @@ function parseReceiptText(raw) {
     if (!p) p = getFallbackPrice(name);
 
     if (p && p < 600 && isValidProductName(name)) {
-      found.push({ name, price: p, selected: true, id: uid() });
+      pushOcrItem(name, p, line);
       i++;
       continue;
     }
@@ -4544,7 +4752,7 @@ function parseReceiptText(raw) {
         let name2 = normalizeTurkishReceiptName(cleanLineRaw(line));
         if (!p2) p2 = getFallbackPrice(name2);
         if (p2 && p2 < 600 && isValidProductName(name2)) {
-          found.push({ name: name2, price: p2, selected: true, id: uid() });
+          pushOcrItem(name2, p2, line);
           i += 2;
           continue;
         }
@@ -4573,7 +4781,10 @@ function renderOcrItems() {
   box.innerHTML = ocrItems.map((item,i)=>`
     <div class="ocr-item ${item.selected?'selected':''}" id="oi-${item.id}" onclick="toggleOcrItem('${item.id}')">
       <div class="ocr-cb"><span class="ocr-check">✓</span></div>
-      <div class="ocr-item-name" id="oname-${item.id}" contenteditable="true" onclick="event.stopPropagation()" spellcheck="false">${x(item.name)}</div>
+      <div style="flex:1;display:flex;align-items:center;gap:6px;min-width:0;">
+        <div class="ocr-item-name" id="oname-${item.id}" contenteditable="true" onclick="event.stopPropagation()" spellcheck="false">${x(item.name)}</div>
+        ${item.learned ? `<span class="ocr-learned-badge" title="Öğrenildi (%${item.matchScore || 100} eşleşme)">✨ Akıllı</span>` : ''}
+      </div>
       <input class="ocr-item-price-edit" type="number" value="${item.price.toFixed(2)}" step="0.01" min="0"
              onclick="event.stopPropagation()" onchange="updateOcrPrice('${item.id}',this.value)" />
       <span style="font-size:12px;color:var(--txt3)">₺</span>
@@ -4644,13 +4855,21 @@ function addSelectedOcr() {
   const payMethod = document.getElementById('ocrPayMethod') ? document.getElementById('ocrPayMethod').value : 'kredi_karti';
   const syncFinance = document.getElementById('ocrSyncFinance') ? document.getElementById('ocrSyncFinance').checked : true;
 
+  const rawBox = document.getElementById('ocrRaw');
+  if (rawBox && rawBox.textContent && mkt) {
+    learnOcrMarket(rawBox.textContent, mkt);
+  }
+
   let totalAmount = 0;
+  let learnedCount = 0;
   selected.forEach(item=>{
     const nameEl = document.getElementById('oname-'+item.id);
-    const name = (nameEl && nameEl.textContent) ? nameEl.textContent.trim() : item.name;
-    if(!name||item.price<=0) return;
+    const finalName = (nameEl && nameEl.textContent) ? nameEl.textContent.trim() : item.name;
+    if(!finalName||item.price<=0) return;
     totalAmount += item.price;
-    products.unshift({ id:uid(), name, market:mkt, price:item.price, date, category:'', note:'OCR ile eklendi', img:null, paymentMethod:payMethod, createdAt:new Date().toISOString() });
+    learnOcrProduct(item.rawLine || item.name, finalName, item.price, mkt);
+    learnedCount++;
+    products.unshift({ id:uid(), name:finalName, market:mkt, price:item.price, date, category:'', note:'OCR ile eklendi', img:null, paymentMethod:payMethod, createdAt:new Date().toISOString() });
   });
 
   const userTotEl = document.getElementById('ocrTotalAmount');
@@ -4658,6 +4877,7 @@ function addSelectedOcr() {
   const financeTotal = (!isNaN(userFinanceVal) && userFinanceVal > 0) ? userFinanceVal : totalAmount;
 
   save(); renderAll(); closeOCR();
+  updateOcrBrainBadge();
 
   if (syncFinance && financeTotal > 0) {
     if (payMethod === 'metropol') {

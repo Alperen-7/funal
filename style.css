@@ -2227,6 +2227,46 @@ body::before {
 }
 .ocr-raw.show { display: block; }
 .ocr-actions { display: flex; gap: 10px; margin-top: 14px; }
+.ocr-learned-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  margin-left: 6px;
+  vertical-align: middle;
+  user-select: none;
+}
+.ocr-brain-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(16, 185, 129, 0.06));
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: var(--r);
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+.ocr-brain-icon { font-size: 24px; line-height: 1; }
+.ocr-brain-info { flex: 1; min-width: 0; }
+.ocr-brain-title { font-size: 13px; font-weight: 700; color: var(--txt); }
+.ocr-brain-desc { font-size: 11px; color: var(--txt3); line-height: 1.4; margin-top: 2px; }
+.ocr-brain-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--pri);
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 999px;
+  padding: 3px 9px;
+  white-space: nowrap;
+}
 
 .live-prep-card {
   background: var(--bg-surface);
