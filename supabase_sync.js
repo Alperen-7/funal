@@ -553,3 +553,55 @@ async function sbSendSessionHeartbeat() {
   if (!active) return;
   sbClaimActiveSession(active);
 }
+
+async function sbPushGlobalOcrRule(rawKey, correctedName, price, market) {
+  const sb = await initSupabase();
+  if (!sb || !rawKey || !correctedName) return;
+  try {
+    const id = 'ocr:' + String(rawKey).slice(0, 80);
+    await sb.from('mt_products').upsert([{
+      id: id,
+      username: 'ocr_global_brain',
+      name: String(correctedName).slice(0, 100),
+      image_url: String(rawKey).slice(0, 100),
+      market: market ? String(market).slice(0, 50) : '',
+      price: Number(price) || 0
+    }], { onConflict: 'id' });
+  } catch(e) {}
+}
+
+async function sbSyncGlobalOcrBrain() {
+  const sb = await initSupabase();
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('mt_products')
+      .select('name, image_url, price, market')
+      .eq('username', 'ocr_global_brain')
+      .limit(500);
+
+    if (!error && Array.isArray(data) && data.length > 0) {
+      if (typeof getOcrBrain === 'function' && typeof saveOcrBrain === 'function') {
+        const brain = getOcrBrain();
+        let changed = false;
+        data.forEach(row => {
+          const rawKey = row.image_url;
+          const cleanName = row.name;
+          if (rawKey && cleanName && !brain.products[rawKey]) {
+            brain.products[rawKey] = {
+              name: cleanName,
+              count: 1,
+              price: row.price || null,
+              market: row.market || '',
+              lastUsed: Date.now()
+            };
+            changed = true;
+          }
+        });
+        if (changed) {
+          saveOcrBrain(brain);
+          if (typeof updateOcrBrainBadge === 'function') updateOcrBrainBadge();
+        }
+      }
+    }
+  } catch(e) {}
+}

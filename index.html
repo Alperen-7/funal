@@ -4095,6 +4095,9 @@ function openOCR() {
     document.getElementById('ocrApiStatus').textContent = saved ? '✓ Kayıtlı API anahtarı kullanılıyor.' : '';
   }
   updateOcrBrainBadge();
+  if (typeof sbSyncGlobalOcrBrain === 'function') {
+    sbSyncGlobalOcrBrain();
+  }
   resetOCR();
 }
 function closeOCR() { document.getElementById('ocrOv').classList.remove('open'); resetOCR(); }
@@ -4363,6 +4366,9 @@ function learnOcrProduct(rawText, correctedName, price, market) {
     };
   }
   saveOcrBrain(brain);
+  if (typeof sbPushGlobalOcrRule === 'function') {
+    sbPushGlobalOcrRule(rawKey, cleanName, price, market);
+  }
 }
 
 function learnOcrMarket(receiptText, marketName) {
