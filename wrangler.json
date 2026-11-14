@@ -1,6 +1,9 @@
 {
   "name": "finansvemarket-funal",
   "compatibility_date": "2024-11-01",
+  "build": {
+    "command": "rm -f _redirects"
+  },
   "assets": {
     "directory": ".",
     "not_found_handling": "single-page-application"

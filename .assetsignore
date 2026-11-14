@@ -1,4 +1,11 @@
+_redirects
+_headers
+.git/
+.git/**
+.wrangler/
+.wrangler/**
 node_modules/
+node_modules/**
 scratch/
 secrets/
 *.py
@@ -9,6 +16,5 @@ requirements.txt
 Procfile
 package*.json
 .env*
-.git*
 .DS_Store
 vercel.json
