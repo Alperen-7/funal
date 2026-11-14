@@ -1,0 +1,14 @@
+node_modules/
+scratch/
+secrets/
+*.py
+*.sql
+test_*.js
+security_remediation_test.js
+requirements.txt
+Procfile
+package*.json
+.env*
+.git*
+.DS_Store
+vercel.json
