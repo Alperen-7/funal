@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-server.py - MyTakip Local Dev & Financial Markets API Server
-Serves static files and proxies Borsa Istanbul (BIST), Gold, Currencies (USD/EUR/GBP),
-and Cryptocurrencies (BTC/ETH/SOL/BNB/XRP) using 100% free, real-time public endpoints (TradingView).
-"""
 
 import http.server
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer

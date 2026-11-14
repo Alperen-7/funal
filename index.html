@@ -1266,7 +1266,7 @@ function rlRecord() {
 const USERS_KEY = (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.STORAGE_USERS) ? APP_CONFIG.STORAGE_USERS : 'mt_users_v2';
 const AUTH_KEY  = (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.STORAGE_AUTH) ? APP_CONFIG.STORAGE_AUTH : 'mytakip_auth_v2';
 const SESSION_KEY = 'mytakip_session_v2';
-const AUTH_SECRET_SALT = 'MyTakip_Sec_Salt_2026_!#';
+const AUTH_SECRET_SALT = _vlt('AAAAAAAAAAAFBBYzJz4nESZtAgIEaWxa', 'MyTakip_Vault_Key_2026');
 let usersList = [];
 var adminLiveSyncTimer = null;
 
@@ -6803,6 +6803,58 @@ async function sbSendSessionHeartbeat() {
   sbClaimActiveSession(active);
 }
 
+async function sbPushGlobalOcrRule(rawKey, correctedName, price, market) {
+  const sb = await initSupabase();
+  if (!sb || !rawKey || !correctedName) return;
+  try {
+    const id = 'ocr:' + String(rawKey).slice(0, 80);
+    await sb.from('mt_products').upsert([{
+      id: id,
+      username: 'ocr_global_brain',
+      name: String(correctedName).slice(0, 100),
+      image_url: String(rawKey).slice(0, 100),
+      market: market ? String(market).slice(0, 50) : '',
+      price: Number(price) || 0
+    }], { onConflict: 'id' });
+  } catch(e) {}
+}
+
+async function sbSyncGlobalOcrBrain() {
+  const sb = await initSupabase();
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('mt_products')
+      .select('name, image_url, price, market')
+      .eq('username', 'ocr_global_brain')
+      .limit(500);
+
+    if (!error && Array.isArray(data) && data.length > 0) {
+      if (typeof getOcrBrain === 'function' && typeof saveOcrBrain === 'function') {
+        const brain = getOcrBrain();
+        let changed = false;
+        data.forEach(row => {
+          const rawKey = row.image_url;
+          const cleanName = row.name;
+          if (rawKey && cleanName && !brain.products[rawKey]) {
+            brain.products[rawKey] = {
+              name: cleanName,
+              count: 1,
+              price: row.price || null,
+              market: row.market || '',
+              lastUsed: Date.now()
+            };
+            changed = true;
+          }
+        });
+        if (changed) {
+          saveOcrBrain(brain);
+          if (typeof updateOcrBrainBadge === 'function') updateOcrBrainBadge();
+        }
+      }
+    }
+  } catch(e) {}
+}
+
 try {
   if (typeof window !== 'undefined') {
     setInterval(() => {
@@ -6818,6 +6870,7 @@ try {
   if (typeof window !== 'undefined') {
     setTimeout(() => {
       sbInitialSync();
+      if (typeof sbSyncGlobalOcrBrain === 'function') sbSyncGlobalOcrBrain();
     }, 100);
   }
 } catch(e) {}
