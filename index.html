@@ -6348,38 +6348,258 @@ function handleAdminQuickBackup() {
   closeAdminBackupPrompt();
 }
 
-function exportAppData() {
+function getSubtleCrypto() {
+  if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) return window.crypto.subtle;
+  if (typeof globalThis !== 'undefined' && globalThis.crypto && globalThis.crypto.subtle) return globalThis.crypto.subtle;
+  return null;
+}
+
+function getRandomBytes(len) {
+  const arr = new Uint8Array(len);
+  if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
+    window.crypto.getRandomValues(arr);
+  } else if (typeof globalThis !== 'undefined' && globalThis.crypto && globalThis.crypto.getRandomValues) {
+    globalThis.crypto.getRandomValues(arr);
+  } else {
+    for (let i = 0; i < len; i++) arr[i] = Math.floor(Math.random() * 256);
+  }
+  return arr;
+}
+
+function getSafeTextEncoder() {
+  if (typeof TextEncoder !== 'undefined') return new TextEncoder();
+  if (typeof window !== 'undefined' && window.TextEncoder) return new window.TextEncoder();
+  if (typeof globalThis !== 'undefined' && globalThis.TextEncoder) return new globalThis.TextEncoder();
+  return { encode: s => new Uint8Array(unescape(encodeURIComponent(s)).split('').map(c => c.charCodeAt(0))) };
+}
+
+function getSafeTextDecoder() {
+  if (typeof TextDecoder !== 'undefined') return new TextDecoder();
+  if (typeof window !== 'undefined' && window.TextDecoder) return new window.TextDecoder();
+  if (typeof globalThis !== 'undefined' && globalThis.TextDecoder) return new globalThis.TextDecoder();
+  return {
+    decode: b => {
+      const u = (b instanceof Uint8Array) ? b : new Uint8Array(b);
+      let s = '';
+      for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]);
+      try { return decodeURIComponent(escape(s)); } catch(e) { return s; }
+    }
+  };
+}
+
+const b64chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+function uint8ToBase64(bytes) {
+  if (typeof btoa !== 'undefined') {
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  }
+  if (typeof window !== 'undefined' && window.btoa) {
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    return window.btoa(binary);
+  }
+  let result = '';
+  let i;
+  const l = bytes.length;
+  for (i = 2; i < l; i += 3) {
+    result += b64chars[bytes[i - 2] >> 2];
+    result += b64chars[((bytes[i - 2] & 0x03) << 4) | (bytes[i - 1] >> 4)];
+    result += b64chars[((bytes[i - 1] & 0x0f) << 2) | (bytes[i] >> 6)];
+    result += b64chars[bytes[i] & 0x3f];
+  }
+  if (i === l + 1) {
+    result += b64chars[bytes[i - 2] >> 2];
+    result += b64chars[(bytes[i - 2] & 0x03) << 4];
+    result += '==';
+  }
+  if (i === l) {
+    result += b64chars[bytes[i - 2] >> 2];
+    result += b64chars[((bytes[i - 2] & 0x03) << 4) | (bytes[i - 1] >> 4)];
+    result += b64chars[(bytes[i - 1] & 0x0f) << 2];
+    result += '=';
+  }
+  return result;
+}
+
+function base64ToUint8(b64) {
+  if (typeof atob !== 'undefined') {
+    const bin = atob(b64);
+    const u = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    return u;
+  }
+  if (typeof window !== 'undefined' && window.atob) {
+    const bin = window.atob(b64);
+    const u = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    return u;
+  }
+  const clean = b64.replace(/[^A-Za-z0-9+/]/g, '');
+  const u = new Uint8Array((clean.length * 3) >> 2);
+  let j = 0;
+  for (let i = 0; i < clean.length; i += 4) {
+    const a = b64chars.indexOf(clean[i]);
+    const b = b64chars.indexOf(clean[i + 1]);
+    const c = b64chars.indexOf(clean[i + 2]);
+    const d = b64chars.indexOf(clean[i + 3]);
+    u[j++] = (a << 2) | (b >> 4);
+    if (c !== -1) u[j++] = ((b & 15) << 4) | (c >> 2);
+    if (d !== -1) u[j++] = ((c & 3) << 6) | d;
+  }
+  return u.subarray(0, j);
+}
+
+async function encryptBackupPayload(plainText, passphrase) {
+  const subtle = getSubtleCrypto();
+  if (!subtle) {
+    return {
+      version: '3.0.0',
+      encrypted: true,
+      cipher: 'VAULT-XOR',
+      data: _vlt(plainText, passphrase || AUTH_SECRET_SALT)
+    };
+  }
+  const enc = getSafeTextEncoder();
+  const salt = getRandomBytes(16);
+  const iv = getRandomBytes(12);
+
+  const keyMaterial = await subtle.importKey(
+    'raw',
+    enc.encode(passphrase || AUTH_SECRET_SALT),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveKey']
+  );
+
+  const key = await subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: salt,
+      iterations: 100000,
+      hash: 'SHA-256'
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+
+  const cipherBuffer = await subtle.encrypt(
+    { name: 'AES-GCM', iv: iv },
+    key,
+    enc.encode(plainText)
+  );
+
+  return {
+    app: 'MyTakip',
+    version: '3.0.0',
+    encrypted: true,
+    cipher: 'AES-GCM-256',
+    kdf: 'PBKDF2-SHA256',
+    iterations: 100000,
+    salt: uint8ToBase64(salt),
+    iv: uint8ToBase64(iv),
+    data: uint8ToBase64(new Uint8Array(cipherBuffer))
+  };
+}
+
+async function decryptBackupPayload(obj, passphrase) {
+  if (!obj || !obj.encrypted) return obj;
+  if (obj.cipher === 'VAULT-XOR') {
+    const jsonStr = _vlt(obj.data, passphrase || AUTH_SECRET_SALT);
+    return JSON.parse(jsonStr);
+  }
+  const subtle = getSubtleCrypto();
+  if (!subtle) throw new Error('Web Crypto API desteklenmiyor.');
+
+  const enc = getSafeTextEncoder();
+  const dec = getSafeTextDecoder();
+  const salt = base64ToUint8(obj.salt);
+  const iv = base64ToUint8(obj.iv);
+  const cipherBuffer = base64ToUint8(obj.data);
+
+  const keyMaterial = await subtle.importKey(
+    'raw',
+    enc.encode(passphrase || AUTH_SECRET_SALT),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveKey']
+  );
+
+  const key = await subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: salt,
+      iterations: obj.iterations || 100000,
+      hash: 'SHA-256'
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['decrypt']
+  );
+
+  const plainBuffer = await subtle.decrypt(
+    { name: 'AES-GCM', iv: iv },
+    key,
+    cipherBuffer
+  );
+
+  const jsonStr = dec.decode(new Uint8Array(plainBuffer));
+  return JSON.parse(jsonStr);
+}
+
+async function exportAppData() {
   const activeUser = localStorage.getItem(AUTH_KEY);
   if (!activeUser || activeUser.toLowerCase() !== 'admin') {
     toast('Bu işlem yalnızca yönetici (admin) tarafından yapılabilir.', 'err');
     return;
   }
+  const passphrase = prompt('Yedek dosyasını AES-256 ile şifrelemek için bir güvenlik parolası belirleyin:\n(Boş bırakırsanız sistem yönetici anahtarınızla otomatik şifrelenir)') || '';
   load(); loadFinance(); loadMetropol(); loadInvest(); loadBills();
   const nowIso = new Date().toISOString();
-  const backup = {
-    version: '2.3.0',
+
+  const allUserData = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && (k.startsWith('gg_v1_') || k.startsWith('mt_v3_') || k.startsWith('mt_metropol_v1_') || k.startsWith('mt_invest_v1_') || k.startsWith('mt_invest_trades_v1_') || k.startsWith('mt_bills_v1_'))) {
+      try { allUserData[k] = JSON.parse(localStorage.getItem(k)); } catch(e) { allUserData[k] = localStorage.getItem(k); }
+    }
+  }
+
+  const backupPlain = {
+    version: '3.0.0',
     exportDate: nowIso,
     products: products || [],
     finance: financeData || [],
     investments: investData || [],
     bills: billsData || [],
-    metropolBalance: metropolBalance || 0
+    metropolBalance: metropolBalance || 0,
+    allUserData: allUserData
   };
-  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `mytakip_yedek_${nowIso.split('T')[0]}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+
   try {
-    localStorage.setItem('mt_last_backup_time', nowIso);
-  } catch(e) {}
-  updateAdminBackupStatus();
-  toast('✓ Tüm veriler başarıyla JSON olarak indirildi!','ok');
+    const encryptedBackup = await encryptBackupPayload(JSON.stringify(backupPlain), passphrase || AUTH_SECRET_SALT);
+    const blob = new Blob([JSON.stringify(encryptedBackup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `mytakip_sifreli_yedek_${nowIso.split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    try {
+      localStorage.setItem('mt_last_backup_time', nowIso);
+    } catch(e) {}
+    updateAdminBackupStatus();
+    toast('✓ Tüm veriler AES-256 ile şifrelenerek güvenle indirildi!', 'ok');
+  } catch(err) {
+    toast('Yedekleme şifrelenirken hata oluştu: ' + err.message, 'err');
+  }
 }
 
-function importAppData(e) {
+async function importAppData(e) {
   const activeUser = localStorage.getItem(AUTH_KEY);
   if (!activeUser || activeUser.toLowerCase() !== 'admin') {
     toast('Bu işlem yalnızca yönetici (admin) tarafından yapılabilir.', 'err');
@@ -6388,10 +6608,23 @@ function importAppData(e) {
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = ev => {
+  reader.onload = async ev => {
     try {
-      const data = JSON.parse(ev.target.result);
-      if (!data.products && !data.finance) throw new Error('Geçersiz dosya yapısı');
+      let rawObj = JSON.parse(ev.target.result);
+      let data;
+      if (rawObj.encrypted) {
+        let pass = '';
+        try {
+          data = await decryptBackupPayload(rawObj, AUTH_SECRET_SALT);
+        } catch(err) {
+          pass = prompt('Bu yedekleme dosyası AES-256 ile şifrelenmiştir. Lütfen şifre çözme parolasını girin:') || '';
+          data = await decryptBackupPayload(rawObj, pass);
+        }
+      } else {
+        data = rawObj;
+      }
+
+      if (!data.products && !data.finance && !data.allUserData) throw new Error('Geçersiz dosya yapısı');
       if (Array.isArray(data.products)) {
         products = data.products;
         save();
@@ -6412,6 +6645,13 @@ function importAppData(e) {
         billsData = data.bills;
         saveBills();
       }
+      if (data.allUserData && typeof data.allUserData === 'object') {
+        Object.entries(data.allUserData).forEach(([k, v]) => {
+          try {
+            localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
+          } catch(e) {}
+        });
+      }
       try {
         if (data.exportDate) {
           localStorage.setItem('mt_last_backup_time', data.exportDate);
@@ -6420,10 +6660,10 @@ function importAppData(e) {
         }
       } catch(e) {}
       updateAdminBackupStatus();
-      toast('✓ Veriler başarıyla geri yüklendi!','ok');
+      toast('✓ Şifreli yedek başarıyla çözüldü ve geri yüklendi!', 'ok');
       if (currentFinTab === 'dash') renderFinDash();
     } catch(err) {
-      toast('Yedek dosyası okunamadı: ' + err.message, 'err');
+      toast('Yedek dosyası açılamadı: Hatalı şifre veya bozuk dosya!', 'err');
     }
   };
   reader.readAsText(file);
