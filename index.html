@@ -768,8 +768,8 @@
         <div class="ac-list" id="acList"></div>
       </div>
       <div class="fg">
-        <label for="pBrand">Marka</label>
-        <input id="pBrand" type="text" placeholder="ör: Ülker, Pınar, Sütaş, Eti…" autocomplete="off" list="brandDl" />
+        <label for="pBrand">Marka *</label>
+        <input id="pBrand" type="text" placeholder="ör: Ülker, Pınar, Sütaş, Eti…" required autocomplete="off" list="brandDl" />
         <datalist id="brandDl"></datalist>
       </div>
       <div class="fg">
@@ -1122,6 +1122,39 @@
   <div class="modal" role="dialog" aria-modal="true">
     <div class="mh"><h2 id="detTitle">Detay</h2><button class="mcls" onclick="closeDet()">✕</button></div>
     <div id="detContent"></div>
+  </div>
+</div>
+
+<input type="file" id="pAttachImgInput" accept="image/*" style="display:none" onchange="handleAttachImg(event)" />
+
+<div class="ov" id="cropOv" onclick="ovClick(event,'cropOv',closeCropModal)">
+  <div class="modal" role="dialog" aria-modal="true" style="max-width:540px;width:95%;">
+    <div class="mh">
+      <h2>✂️ Fotoğraf Alanını Seç</h2>
+      <button type="button" class="mcls" onclick="closeCropModal()">✕</button>
+    </div>
+    <div style="padding:16px 20px;">
+      <p style="font-size:12.5px;color:var(--txt2);margin-bottom:12px;">Fotoğrafın eklenmesini istediğiniz kare veya dikdörtgen alanını seçin:</p>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+        <button type="button" class="pay-btn active" id="cropModeSquareBtn" onclick="setCropAspect('square')">🔲 Kare (1:1)</button>
+        <button type="button" class="pay-btn" id="cropModeRectBtn" onclick="setCropAspect('rect')">▭ Dikdörtgen (4:3)</button>
+        <button type="button" class="pay-btn" id="cropModeFreeBtn" onclick="setCropAspect('free')">↔️ Serbest</button>
+      </div>
+      <div id="cropContainer" style="position:relative;width:100%;height:320px;background:#06080f;border-radius:12px;overflow:hidden;display:flex;align-items:center;justify-content:center;user-select:none;-webkit-user-select:none;touch-action:none;border:1px solid var(--bdr);">
+        <img id="cropSourceImg" alt="Kırpılacak Görsel" style="max-width:100%;max-height:100%;display:block;pointer-events:none;-webkit-user-drag:none;object-fit:contain;" />
+        <div id="cropBox" style="position:absolute;border:2px solid #6366f1;box-shadow:0 0 0 9999px rgba(0,0,0,0.65);cursor:move;box-sizing:border-box;">
+          <div class="crop-hnd crop-nw" data-handle="nw" style="position:absolute;width:14px;height:14px;background:#6366f1;border:2px solid #fff;border-radius:3px;top:-7px;left:-7px;cursor:nwse-resize;"></div>
+          <div class="crop-hnd crop-ne" data-handle="ne" style="position:absolute;width:14px;height:14px;background:#6366f1;border:2px solid #fff;border-radius:3px;top:-7px;right:-7px;cursor:nesw-resize;"></div>
+          <div class="crop-hnd crop-sw" data-handle="sw" style="position:absolute;width:14px;height:14px;background:#6366f1;border:2px solid #fff;border-radius:3px;bottom:-7px;left:-7px;cursor:nesw-resize;"></div>
+          <div class="crop-hnd crop-se" data-handle="se" style="position:absolute;width:14px;height:14px;background:#6366f1;border:2px solid #fff;border-radius:3px;bottom:-7px;right:-7px;cursor:nwse-resize;"></div>
+          <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:11px;color:#fff;background:rgba(0,0,0,0.65);padding:3px 8px;border-radius:4px;pointer-events:none;font-weight:600;white-space:nowrap;" id="cropDimensionLabel"></div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">
+        <button type="button" class="btn-sec" onclick="closeCropModal()">İptal</button>
+        <button type="button" class="btn-pri" onclick="applyCroppedImage()">✓ Seçilen Alanı Kırp ve Ekle</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -4062,28 +4095,427 @@ function compressImage(file, maxWidth = 480, maxHeight = 480, quality = 0.72) {
   });
 }
 
-async function handleImg(e) {
-  const f = e.target.files[0];
-  if (!f) return;
-  if (!f.type.startsWith('image/')) {
+let cropState = {
+  mode: 'square',
+  targetType: 'add',
+  targetProdId: null,
+  sourceDataUrl: null,
+  naturalWidth: 0,
+  naturalHeight: 0,
+  boxX: 0,
+  boxY: 0,
+  boxW: 100,
+  boxH: 100
+};
+let isDraggingCrop = false;
+let dragHandle = null;
+let startPointerX = 0, startPointerY = 0;
+let startBoxX = 0, startBoxY = 0, startBoxW = 0, startBoxH = 0;
+let attachingProductId = null;
+
+function openCropModal(file, targetType, targetProdId) {
+  if (!file) return;
+  if (typeof file === 'string') {
+    initCropWithDataUrl(file, targetType, targetProdId);
+    return;
+  }
+  if (!file.type || !file.type.startsWith('image/')) {
     toast('Lütfen geçerli bir resim dosyası seçin.', 'err');
     return;
   }
-  try {
-    toast('Fotoğraf optimize ediliyor...', 'ok');
-    
-    const compressed = await compressImage(f, 480, 480, 0.72);
-    imgB64 = compressed;
-    const pr = document.getElementById('imgPreview');
-    pr.src = imgB64;
-    pr.style.display = 'block';
-    document.getElementById('imgPh').style.display = 'none';
-    document.getElementById('rmImgBtn').style.display = 'inline-block';
-    toast('✓ Fotoğraf optimize edildi ve eklendi.', 'ok');
-  } catch(err) {
-    console.error('Fotoğraf işleme hatası:', err);
-    toast('Fotoğraf işlenirken hata oluştu.', 'err');
+  cropState.targetType = targetType || 'add';
+  cropState.targetProdId = targetProdId || null;
+  cropState.mode = 'square';
+
+  if (typeof FileReader !== 'undefined') {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      initCropWithDataUrl(e.target.result, targetType, targetProdId);
+    };
+    reader.readAsDataURL(file);
   }
+}
+
+function initCropWithDataUrl(dataUrl, targetType, targetProdId) {
+  cropState.sourceDataUrl = dataUrl;
+  cropState.targetType = targetType || 'add';
+  cropState.targetProdId = targetProdId || null;
+  cropState.mode = 'square';
+  const ov = document.getElementById('cropOv');
+  if (ov) ov.classList.add('open');
+  const img = document.getElementById('cropSourceImg');
+  if (img) {
+    img.onload = function() {
+      cropState.naturalWidth = img.naturalWidth || 400;
+      cropState.naturalHeight = img.naturalHeight || 400;
+      setupCropEvents();
+      setCropAspect('square');
+    };
+    img.src = dataUrl;
+    if (img.complete && img.naturalWidth) {
+      cropState.naturalWidth = img.naturalWidth;
+      cropState.naturalHeight = img.naturalHeight;
+      setupCropEvents();
+      setCropAspect('square');
+    }
+  }
+}
+
+function updateCropImageBounds() {
+  const img = document.getElementById('cropSourceImg');
+  const cont = document.getElementById('cropContainer');
+  if (!img || !cont) return { left: 0, top: 0, width: 300, height: 300 };
+  const imgR = img.getBoundingClientRect ? img.getBoundingClientRect() : { left: 0, top: 0, width: 300, height: 300 };
+  const contR = cont.getBoundingClientRect ? cont.getBoundingClientRect() : { left: 0, top: 0, width: 300, height: 300 };
+  const w = imgR.width || (cont.clientWidth || 300);
+  const h = imgR.height || (cont.clientHeight || 300);
+  const l = (imgR.width > 0 && contR.width > 0) ? Math.max(0, imgR.left - contR.left) : Math.max(0, ((cont.clientWidth || 300) - w) / 2);
+  const t = (imgR.height > 0 && contR.height > 0) ? Math.max(0, imgR.top - contR.top) : Math.max(0, ((cont.clientHeight || 300) - h) / 2);
+  return {
+    left: Math.round(l),
+    top: Math.round(t),
+    width: Math.round(w),
+    height: Math.round(h)
+  };
+}
+
+function initCropBox() {
+  const bounds = updateCropImageBounds();
+  const bw = Math.max(60, bounds.width);
+  const bh = Math.max(60, bounds.height);
+  let w = 0, h = 0;
+  if (cropState.mode === 'square') {
+    const side = Math.min(bw, bh) * 0.75;
+    w = side;
+    h = side;
+  } else if (cropState.mode === 'rect') {
+    w = bw * 0.8;
+    h = w * 0.75;
+    if (h > bh * 0.85) {
+      h = bh * 0.85;
+      w = h * (4 / 3);
+    }
+  } else {
+    w = bw * 0.75;
+    h = bh * 0.75;
+  }
+  cropState.boxW = Math.round(Math.max(40, Math.min(w, bw)));
+  cropState.boxH = Math.round(Math.max(40, Math.min(h, bh)));
+  cropState.boxX = Math.round(bounds.left + Math.max(0, (bw - cropState.boxW) / 2));
+  cropState.boxY = Math.round(bounds.top + Math.max(0, (bh - cropState.boxH) / 2));
+  renderCropBox();
+}
+
+function renderCropBox() {
+  const box = document.getElementById('cropBox');
+  if (!box) return;
+  box.style.left = cropState.boxX + 'px';
+  box.style.top = cropState.boxY + 'px';
+  box.style.width = cropState.boxW + 'px';
+  box.style.height = cropState.boxH + 'px';
+  const lbl = document.getElementById('cropDimensionLabel');
+  if (lbl) {
+    const bounds = updateCropImageBounds();
+    const img = document.getElementById('cropSourceImg');
+    if (img && img.naturalWidth && bounds.width > 0) {
+      const scaleX = img.naturalWidth / bounds.width;
+      const scaleY = img.naturalHeight / bounds.height;
+      const realW = Math.round(cropState.boxW * scaleX);
+      const realH = Math.round(cropState.boxH * scaleY);
+      const aspectText = cropState.mode === 'square' ? '1:1 Kare' : (cropState.mode === 'rect' ? '4:3 Dikdörtgen' : 'Serbest');
+      lbl.textContent = `${realW}×${realH} (${aspectText})`;
+    } else {
+      lbl.textContent = `${cropState.boxW}×${cropState.boxH}`;
+    }
+  }
+}
+
+function setCropAspect(mode) {
+  cropState.mode = mode;
+  ['Square', 'Rect', 'Free'].forEach(m => {
+    const btn = document.getElementById('cropMode' + m + 'Btn');
+    if (btn) {
+      if (m.toLowerCase() === mode) btn.classList.add('active');
+      else btn.classList.remove('active');
+    }
+  });
+  initCropBox();
+}
+
+function setupCropEvents() {
+  const box = document.getElementById('cropBox');
+  if (!box || box._hasCropEvents) return;
+  box._hasCropEvents = true;
+
+  box.addEventListener('pointerdown', function(e) {
+    if (e.target.classList && e.target.classList.contains('crop-hnd')) {
+      dragHandle = e.target.dataset.handle;
+    } else {
+      dragHandle = 'move';
+    }
+    isDraggingCrop = true;
+    startPointerX = e.clientX;
+    startPointerY = e.clientY;
+    startBoxX = cropState.boxX;
+    startBoxY = cropState.boxY;
+    startBoxW = cropState.boxW;
+    startBoxH = cropState.boxH;
+    try { box.setPointerCapture(e.pointerId); } catch(err) {}
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  box.addEventListener('pointermove', function(e) {
+    if (!isDraggingCrop) return;
+    const dx = e.clientX - startPointerX;
+    const dy = e.clientY - startPointerY;
+    const bounds = updateCropImageBounds();
+    const minW = 40, minH = 40;
+
+    if (dragHandle === 'move') {
+      let nx = startBoxX + dx;
+      let ny = startBoxY + dy;
+      nx = Math.max(bounds.left, Math.min(nx, bounds.left + bounds.width - cropState.boxW));
+      ny = Math.max(bounds.top, Math.min(ny, bounds.top + bounds.height - cropState.boxH));
+      cropState.boxX = Math.round(nx);
+      cropState.boxY = Math.round(ny);
+    } else if (dragHandle === 'se') {
+      let nw = startBoxW + dx;
+      let nh = startBoxH + dy;
+      if (cropState.mode === 'square') {
+        const s = Math.max(minW, Math.min(nw, nh));
+        nw = s; nh = s;
+      } else if (cropState.mode === 'rect') {
+        nw = Math.max(50, nw);
+        nh = Math.round(nw * 0.75);
+      }
+      nw = Math.max(minW, Math.min(nw, bounds.left + bounds.width - cropState.boxX));
+      nh = Math.max(minH, Math.min(nh, bounds.top + bounds.height - cropState.boxY));
+      if (cropState.mode === 'square') {
+        const s = Math.min(nw, nh);
+        nw = s; nh = s;
+      } else if (cropState.mode === 'rect') {
+        if (nh * (4/3) <= bounds.left + bounds.width - cropState.boxX) {
+          nw = Math.round(nh * (4/3));
+        } else {
+          nw = bounds.left + bounds.width - cropState.boxX;
+          nh = Math.round(nw * 0.75);
+        }
+      }
+      cropState.boxW = Math.round(nw);
+      cropState.boxH = Math.round(nh);
+    } else if (dragHandle === 'sw') {
+      let nw = startBoxW - dx;
+      let nh = startBoxH + dy;
+      if (cropState.mode === 'square') {
+        const s = Math.max(minW, Math.min(nw, nh));
+        nw = s; nh = s;
+      } else if (cropState.mode === 'rect') {
+        nw = Math.max(50, nw);
+        nh = Math.round(nw * 0.75);
+      }
+      nw = Math.max(minW, Math.min(nw, startBoxX + startBoxW - bounds.left));
+      nh = Math.max(minH, Math.min(nh, bounds.top + bounds.height - cropState.boxY));
+      if (cropState.mode === 'square') {
+        const s = Math.min(nw, nh);
+        nw = s; nh = s;
+      }
+      cropState.boxW = Math.round(nw);
+      cropState.boxH = Math.round(nh);
+      cropState.boxX = Math.round(startBoxX + startBoxW - nw);
+    } else if (dragHandle === 'ne') {
+      let nw = startBoxW + dx;
+      let nh = startBoxH - dy;
+      if (cropState.mode === 'square') {
+        const s = Math.max(minW, Math.min(nw, nh));
+        nw = s; nh = s;
+      } else if (cropState.mode === 'rect') {
+        nw = Math.max(50, nw);
+        nh = Math.round(nw * 0.75);
+      }
+      nw = Math.max(minW, Math.min(nw, bounds.left + bounds.width - cropState.boxX));
+      nh = Math.max(minH, Math.min(nh, startBoxY + startBoxH - bounds.top));
+      if (cropState.mode === 'square') {
+        const s = Math.min(nw, nh);
+        nw = s; nh = s;
+      } else if (cropState.mode === 'rect') {
+        nw = Math.round(nh * (4 / 3));
+      }
+      cropState.boxW = Math.round(nw);
+      cropState.boxH = Math.round(nh);
+      cropState.boxY = Math.round(startBoxY + startBoxH - nh);
+    } else if (dragHandle === 'nw') {
+      let nw = startBoxW - dx;
+      let nh = startBoxH - dy;
+      if (cropState.mode === 'square') {
+        const s = Math.max(minW, Math.min(nw, nh));
+        nw = s; nh = s;
+      } else if (cropState.mode === 'rect') {
+        nw = Math.max(50, nw);
+        nh = Math.round(nw * 0.75);
+      }
+      nw = Math.max(minW, Math.min(nw, startBoxX + startBoxW - bounds.left));
+      nh = Math.max(minH, Math.min(nh, startBoxY + startBoxH - bounds.top));
+      if (cropState.mode === 'square') {
+        const s = Math.min(nw, nh);
+        nw = s; nh = s;
+      }
+      cropState.boxW = Math.round(nw);
+      cropState.boxH = Math.round(nh);
+      cropState.boxX = Math.round(startBoxX + startBoxW - nw);
+      cropState.boxY = Math.round(startBoxY + startBoxH - nh);
+    }
+    renderCropBox();
+    e.preventDefault();
+  });
+
+  const stopDrag = function(e) {
+    if (isDraggingCrop) {
+      isDraggingCrop = false;
+      dragHandle = null;
+      try { if (e && e.pointerId) box.releasePointerCapture(e.pointerId); } catch(err) {}
+    }
+  };
+  box.addEventListener('pointerup', stopDrag);
+  box.addEventListener('pointercancel', stopDrag);
+  window.addEventListener('pointerup', stopDrag);
+}
+
+function applyCroppedImage() {
+  const img = document.getElementById('cropSourceImg');
+  if (!img) return;
+  const bounds = updateCropImageBounds();
+  const natW = img.naturalWidth || bounds.width || 400;
+  const natH = img.naturalHeight || bounds.height || 400;
+  const bW = Math.max(1, bounds.width);
+  const bH = Math.max(1, bounds.height);
+
+  const scaleX = natW / bW;
+  const scaleY = natH / bH;
+
+  const relX = Math.max(0, cropState.boxX - bounds.left);
+  const relY = Math.max(0, cropState.boxY - bounds.top);
+
+  let sx = Math.round(relX * scaleX);
+  let sy = Math.round(relY * scaleY);
+  let sw = Math.round(cropState.boxW * scaleX);
+  let sh = Math.round(cropState.boxH * scaleY);
+
+  sx = Math.max(0, Math.min(sx, natW - 10));
+  sy = Math.max(0, Math.min(sy, natH - 10));
+  sw = Math.max(10, Math.min(sw, natW - sx));
+  sh = Math.max(10, Math.min(sh, natH - sy));
+
+  const maxOut = 480;
+  let dw = sw, dh = sh;
+  if (dw > maxOut || dh > maxOut) {
+    if (dw > dh) {
+      dh = Math.round((dh * maxOut) / dw);
+      dw = maxOut;
+    } else {
+      dw = Math.round((dw * maxOut) / dh);
+      dh = maxOut;
+    }
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = dw;
+  canvas.height = dh;
+  const ctx = canvas.getContext ? canvas.getContext('2d') : null;
+  if (ctx) {
+    ctx.fillStyle = '#0f1422';
+    ctx.fillRect(0, 0, dw, dh);
+    try {
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+    } catch(err) {
+      console.error('Kırpma hatası:', err);
+    }
+  }
+  const croppedB64 = (canvas.toDataURL ? canvas.toDataURL('image/jpeg', 0.82) : (cropState.sourceDataUrl || ''));
+
+  if (cropState.targetType === 'add') {
+    imgB64 = croppedB64;
+    const pr = document.getElementById('imgPreview');
+    if (pr) {
+      pr.src = imgB64;
+      pr.style.display = 'block';
+    }
+    const ph = document.getElementById('imgPh');
+    if (ph) ph.style.display = 'none';
+    const rm = document.getElementById('rmImgBtn');
+    if (rm) rm.style.display = 'inline-block';
+    closeCropModal();
+    toast('✓ Fotoğraf alanı seçildi ve eklendi.', 'ok');
+  } else if (cropState.targetType === 'product') {
+    const p = products.find(x => x.id === cropState.targetProdId);
+    if (!p) {
+      toast('Ürün bulunamadı!', 'err');
+      closeCropModal();
+      return;
+    }
+    if (p.img) {
+      toast('Bu ürünün zaten fotoğrafı var ve değiştirilemez!', 'err');
+      closeCropModal();
+      return;
+    }
+    p.img = croppedB64;
+    save();
+    renderAll();
+    openDet(p.id);
+    closeCropModal();
+    toast(`✓ "${p.name}" ürününe fotoğraf başarıyla eklendi!`, 'ok');
+  }
+}
+
+function closeCropModal() {
+  const ov = document.getElementById('cropOv');
+  if (ov) ov.classList.remove('open');
+  isDraggingCrop = false;
+  dragHandle = null;
+  cropState.sourceDataUrl = null;
+  cropState.targetProdId = null;
+  const pImg = document.getElementById('pImg');
+  if (pImg) pImg.value = '';
+  const pAttach = document.getElementById('pAttachImgInput');
+  if (pAttach) pAttach.value = '';
+}
+
+function openAttachPhotoModal(prodId) {
+  const p = products.find(x => x.id === prodId);
+  if (!p) return;
+  if (p.img) {
+    toast('Bu ürünün fotoğrafı zaten mevcuttur ve değiştirilemez.', 'err');
+    return;
+  }
+  attachingProductId = prodId;
+  const inp = document.getElementById('pAttachImgInput');
+  if (inp) {
+    inp.value = '';
+    inp.click();
+  }
+}
+
+function handleAttachImg(e) {
+  const f = e.target.files && e.target.files[0];
+  if (!f || !attachingProductId) return;
+  const prodId = attachingProductId;
+  const p = products.find(x => x.id === prodId);
+  if (!p) return;
+  if (p.img) {
+    toast('Bu ürünün fotoğrafı zaten mevcuttur ve değiştirilemez.', 'err');
+    return;
+  }
+  openCropModal(f, 'product', prodId);
+}
+
+async function handleImg(e) {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  if (!f.type || !f.type.startsWith('image/')) {
+    toast('Lütfen geçerli bir resim dosyası seçin.', 'err');
+    return;
+  }
+  openCropModal(f, 'add');
 }
 
 function removeImg() {
@@ -4101,7 +4533,7 @@ function submitProduct(e) {
   const brand=document.getElementById('pBrand')?document.getElementById('pBrand').value.trim():'';
   const price=parseFloat(document.getElementById('pPrice').value), date=document.getElementById('pDate').value;
   const cat=document.getElementById('pCat').value, note=document.getElementById('pNote').value.trim();
-  if(!name||!market||isNaN(price)||price<0||!date){toast('Zorunlu alanları doldurun!','err');return;}
+  if(!name||!brand||!market||isNaN(price)||price<0||!date){toast('Lütfen Marka dahil tüm zorunlu alanları doldurun!','err');return;}
   
   const payMethod = document.getElementById('addPayMethod') ? document.getElementById('addPayMethod').value : 'kredi_karti';
   const syncFinance = document.getElementById('addSyncFinance') ? document.getElementById('addSyncFinance').checked : true;
@@ -5060,9 +5492,14 @@ function openDet(id) {
     `;
   }
 
+  const photoSection = p.img
+    ? `<div style="position:relative"><img class="di" src="${p.img}" alt="${x(p.name)}"><div style="position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,0.65);font-size:11px;color:var(--txt2);padding:2px 8px;border-radius:6px;pointer-events:none;">🔒 Fotoğraf Kilitli</div></div>`
+    : `<div class="di-ph" style="cursor:pointer;flex-direction:column;gap:6px;" onclick="openAttachPhotoModal('${p.id}')" title="Fotoğraf Eklemek İçin Tıklayın"><div style="font-size:36px">${e}</div><span style="font-size:12px;color:var(--pri-light);font-weight:600;">📷 Fotoğraf Ekle</span><span style="font-size:10.5px;color:var(--txt3);">Kare veya dikdörtgen kırparak ekleyin</span></div>
+       <button type="button" class="btn-sec" style="width:100%;margin-top:4px;margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:8px;border-color:var(--pri);color:var(--pri-light);" onclick="openAttachPhotoModal('${p.id}')">📷 Ürüne Fotoğraf Ekle</button>`;
+
   document.getElementById('detTitle').textContent=p.name;
   document.getElementById('detContent').innerHTML=`
-    ${p.img?`<img class="di" src="${p.img}" alt="${x(p.name)}">`:`<div class="di-ph">${e}</div>`}
+    ${photoSection}
     <div class="dp">${fmt(p.price)}<span class="tl">₺</span></div>
     <div class="dl"><span>🏪 Market</span><span style="display:flex;align-items:center;gap:6px"><span style="width:7px;height:7px;border-radius:50%;background:${c};display:inline-block"></span>${x(p.market)}</span></div>
     ${p.brand?`<div class="dl"><span>🏷️ Marka</span><span style="font-weight:600;color:var(--txt)">${x(p.brand)}</span></div>`:''}
