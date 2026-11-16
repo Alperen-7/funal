@@ -359,7 +359,12 @@ async function sbFetchUsersFromCloud() {
   try {
     const { data, error } = await sb.from('mt_users').select('*');
     if (!error && Array.isArray(data)) {
-      return data.map(u => ({
+      const isLoc = typeof isLocalEnv === 'function' ? isLocalEnv() : false;
+      const filtered = data.filter(u => {
+        const isLocalUser = (u.username || '').toLowerCase().startsWith('local_');
+        return isLoc ? isLocalUser : !isLocalUser;
+      });
+      return filtered.map(u => ({
         username: u.username,
         pinHash: u.pin_hash,
         secQ: u.sec_q,

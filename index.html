@@ -698,9 +698,14 @@
             <h2 style="font-size:17px;font-weight:700">👥 Sistemdeki Kullanıcılar</h2>
             <p style="font-size:12px;color:var(--txt3)">Tüm kayıtlı kullanıcı hesapları</p>
           </div>
-          <button class="btn-sec" onclick="triggerAdminRefresh()" style="font-size:12px;padding:6px 14px;display:inline-flex;align-items:center;gap:6px">
-            <span class="admRefreshSpin">🔄</span> Canlı Yenile
-          </button>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn-sec" onclick="triggerAdminRefresh()" style="font-size:12px;padding:6px 14px;display:inline-flex;align-items:center;gap:6px">
+              <span class="admRefreshSpin">🔄</span> Canlı Yenile
+            </button>
+            <button class="btn-sec" onclick="adminPurgeTestAccounts()" title="Buluttaki local_* test hesaplarını ve verilerini siler" style="font-size:12px;padding:6px 14px;display:inline-flex;align-items:center;gap:6px;color:var(--txt3)">
+              🧹 Test Verilerini Temizle
+            </button>
+          </div>
         </div>
         <div id="admUsersTableWrap" class="admin-table-wrap" style="overflow-x:auto"></div>
       </div>
@@ -1538,7 +1543,17 @@ function loadUsers() {
   try { usersList = JSON.parse(localStorage.getItem(USERS_KEY)) || []; }
   catch(e) { usersList = []; }
 
-  let migrated = false;
+  const isLoc = isLocalEnv();
+  const prevCount = usersList.length;
+  if (!isLoc) {
+    usersList = usersList.filter(u => !(u.username || '').toLowerCase().startsWith('local_'));
+  } else {
+    usersList = usersList.filter(u => {
+      const uname = (u.username || '').toLowerCase();
+      return uname.startsWith('local_') || uname === 'admin';
+    });
+  }
+  let migrated = usersList.length !== prevCount;
   usersList.forEach(u => {
     if (u.pin) {
       u.pinHash = hashPin(u.pin, u.username);
@@ -1788,8 +1803,8 @@ function renderAdminDashboard(skipCloudSync) {
   loadUsers();
   updateAdminBackupStatus();
   const envBadge = document.getElementById('admEnvBadge');
+  const isLoc = isLocalEnv();
   if (envBadge) {
-    const isLoc = isLocalEnv();
     envBadge.innerHTML = isLoc ? '🧪 TEST / LOCAL' : '🌐 CANLI / PROD';
     envBadge.style.color = isLoc ? '#f59e0b' : '#10b981';
     envBadge.style.borderColor = isLoc ? 'rgba(245,158,11,0.4)' : 'rgba(16,185,129,0.4)';
@@ -1800,9 +1815,17 @@ function renderAdminDashboard(skipCloudSync) {
   const totalUsersEl = document.getElementById('admTotalUsers');
   const totalLogsEl = document.getElementById('admTotalLogs');
 
-  const sortedUsers = [...usersList].sort((a, b) => {
-    if (a.username.toLowerCase() === 'admin') return -1;
-    if (b.username.toLowerCase() === 'admin') return 1;
+  const envUsers = usersList.filter(u => {
+    const uname = (u.username || '').toLowerCase();
+    const isLocalUser = uname.startsWith('local_');
+    return isLoc ? (isLocalUser || uname === 'admin') : !isLocalUser;
+  });
+
+  const sortedUsers = [...envUsers].sort((a, b) => {
+    const aIsAdmin = a.username.toLowerCase() === 'admin' || a.username.toLowerCase() === 'local_admin';
+    const bIsAdmin = b.username.toLowerCase() === 'admin' || b.username.toLowerCase() === 'local_admin';
+    if (aIsAdmin) return -1;
+    if (bIsAdmin) return 1;
     const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
     const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
     return timeB - timeA;
@@ -1826,7 +1849,7 @@ function renderAdminDashboard(skipCloudSync) {
           </thead>
           <tbody>
             ${sortedUsers.map(u => {
-              const isAdmin = u.username.toLowerCase() === 'admin';
+              const isAdmin = u.username.toLowerCase() === 'admin' || u.username.toLowerCase() === 'local_admin' || u.role === 'admin';
               const dateStr = formatUserRegDate(u.createdAt);
               return `
                 <tr>
@@ -6658,7 +6681,12 @@ async function sbFetchUsersFromCloud() {
   try {
     const { data, error } = await sb.from('mt_users').select('*');
     if (!error && Array.isArray(data)) {
-      return data.map(u => ({
+      const isLoc = isLocalEnv();
+      const filtered = data.filter(u => {
+        const isLocalUser = (u.username || '').toLowerCase().startsWith('local_');
+        return isLoc ? isLocalUser : !isLocalUser;
+      });
+      return filtered.map(u => ({
         username: u.username,
         pinHash: u.pin_hash,
         secQ: u.sec_q,
@@ -6724,6 +6752,28 @@ async function sbClearAuditLogs() {
       await sb.from('mt_login_logs').delete().not('username', 'like', 'local_%');
     }
   } catch(e) {}
+}
+
+async function adminPurgeTestAccounts() {
+  if (!confirm('Buluttaki (Supabase) tüm "local_*" test kullanıcıları ve test kayıtları kalıcı olarak silinecek. Emin misiniz?')) return;
+  const sb = await initSupabase();
+  if (sb) {
+    try {
+      await Promise.all([
+        sb.from('mt_users').delete().like('username', 'local_%'),
+        sb.from('mt_finance').delete().like('username', 'local_%'),
+        sb.from('mt_products').delete().like('username', 'local_%'),
+        sb.from('mt_bills').delete().like('username', 'local_%'),
+        sb.from('mt_investments').delete().like('username', 'local_%'),
+        sb.from('mt_login_logs').delete().like('username', 'local_%'),
+        sb.from('mt_app_state').delete().like('username', 'local_%'),
+        sb.from('mt_app_state').delete().like('username', 'session:local_%')
+      ]);
+    } catch(e) {}
+  }
+  loadUsers();
+  renderAdminDashboard(true);
+  toast('✓ Tüm yerel test hesapları ve verileri temizlendi.', 'ok');
 }
 
 async function sbDeleteUserFromCloud(username) {
