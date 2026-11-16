@@ -290,7 +290,7 @@
         <div class="sc"><span class="sc-ico">📦</span><div><div class="sc-val" id="sUniq">0</div><div class="sc-lbl">Farklı Ürün</div></div></div>
       </div>
       <div class="filters">
-        <div class="sw"><span class="si">🔍</span><input type="text" id="searchInput" placeholder="Ürün veya market ara…" oninput="applyFilters()" /></div>
+        <div class="sw"><span class="si">🔍</span><input type="text" id="searchInput" placeholder="Ürün, marka veya market ara…" oninput="applyFilters()" /></div>
         <select class="fsel" id="mktFilter" onchange="applyFilters()"><option value="">Tüm Marketler</option></select>
         <select class="fsel" id="catFilter" onchange="applyFilters()">
           <option value="">Tüm Kategoriler</option>
@@ -763,6 +763,11 @@
         <div class="ac-list" id="acList"></div>
       </div>
       <div class="fg">
+        <label for="pBrand">Marka</label>
+        <input id="pBrand" type="text" placeholder="ör: Ülker, Pınar, Sütaş, Eti…" autocomplete="off" list="brandDl" />
+        <datalist id="brandDl"></datalist>
+      </div>
+      <div class="fg">
         <label for="pMarket">Market *</label>
         <input id="pMarket" type="text" placeholder="ör: Migros, BİM, A101…" required autocomplete="off" list="mktDl" />
         <datalist id="mktDl"></datalist>
@@ -1112,6 +1117,19 @@
   <div class="modal" role="dialog" aria-modal="true">
     <div class="mh"><h2 id="detTitle">Detay</h2><button class="mcls" onclick="closeDet()">✕</button></div>
     <div id="detContent"></div>
+  </div>
+</div>
+
+<div class="ov" id="delProdConfirmOv" onclick="ovClick(event,'delProdConfirmOv',closeDelProdConfirm)">
+  <div class="modal" role="dialog" aria-modal="true" style="max-width:440px;text-align:center;">
+    <div class="mh" style="justify-content:center;">
+      <h2 style="font-size:18px;">🗑️ Ürünü Sil</h2>
+    </div>
+    <div style="padding:16px 20px;">
+      <p id="delProdConfirmText" style="font-size:14px;color:var(--txt);margin-bottom:12px;font-weight:600;"></p>
+      <div id="delProdFinAlert"></div>
+      <div id="delProdActionButtons" style="display:flex;flex-direction:column;gap:8px;"></div>
+    </div>
   </div>
 </div>
 
@@ -3655,7 +3673,7 @@ function switchTab(t) {
   if(t==='compare') initCompare();
 }
 
-function renderAll() { updateSB(); applyFilters(); updateMktFilter(); updateMktDl(); }
+function renderAll() { updateSB(); applyFilters(); updateMktFilter(); updateMktDl(); updateBrandDl(); }
 
 function updateSB() {
   document.getElementById('sTotalRec').textContent = products.length;
@@ -3677,13 +3695,20 @@ function updateMktDl() {
     [...new Set(products.map(p=>p.market.trim()))].forEach(m=>{ const o=document.createElement('option'); o.value=m; dl.appendChild(o); });
   });
 }
+function updateBrandDl() {
+  const dl = document.getElementById('brandDl');
+  if (!dl) return;
+  dl.innerHTML = '';
+  const brands = [...new Set(products.map(p => (p.brand || '').trim()).filter(Boolean))].sort();
+  brands.forEach(b => { const o = document.createElement('option'); o.value = b; dl.appendChild(o); });
+}
 
 function applyFilters() {
   const q   = document.getElementById('searchInput').value.trim().toLowerCase();
   const mkt = document.getElementById('mktFilter').value;
   const catF = (document.getElementById('catFilter') ? document.getElementById('catFilter').value : '');
   const srt = document.getElementById('sortFilter').value;
-  let list = products.filter(p=>(!q||p.name.toLowerCase().includes(q)||p.market.toLowerCase().includes(q))&&(!mkt||p.market.trim()===mkt)&&(!catF||p.category===catF));
+  let list = products.filter(p=>(!q||p.name.toLowerCase().includes(q)||p.market.toLowerCase().includes(q)||(p.brand&&p.brand.toLowerCase().includes(q)))&&(!mkt||p.market.trim()===mkt)&&(!catF||p.category===catF));
   list.sort((a,b)=>{
     if(srt==='date-desc') return new Date(b.date)-new Date(a.date);
     if(srt==='date-asc')  return new Date(a.date)-new Date(b.date);
@@ -3765,6 +3790,7 @@ function renderGrid(list) {
           <div class="cn">${x(p.name)}</div>
           ${p.category ? `<div class="cc" title="${x(p.category)}">${e}</div>` : ''}
         </div>
+        ${p.brand ? `<div class="c-brand">🏷️ ${x(p.brand)}</div>` : ''}
         <div class="cm">
           <div class="mdot" style="background:${c}"></div>
           <span>${x(p.market)}</span>
@@ -3851,7 +3877,7 @@ function renderCmpRecords() {
     return `<div class="cmp-rec ${best?'best':worst?'worst':''}">
       <div class="cmp-rec-dot" style="background:${c}"></div>
       <div class="cmp-rec-info">
-        <div class="cmp-rec-mkt">${x(p.market)}</div>
+        <div class="cmp-rec-mkt">${x(p.market)}${p.brand ? ` <span style="font-size:11px;color:var(--txt3);font-weight:normal">(${x(p.brand)})</span>` : ''}</div>
         <div class="cmp-rec-date">📅 ${fmtD(p.date)}</div>
         <div class="cmp-rec-bar"><div class="cmp-rec-bfill" style="width:${w}%;background:${c}"></div></div>
       </div>
@@ -3894,7 +3920,9 @@ function saveFromCompare() {
   const name  = cmpCurrentName.trim();
   if(!name||!mkt||isNaN(price)||price<0){ toast('Market ve fiyat alanlarını doldurun!','err'); return; }
   const today = new Date().toISOString().split('T')[0];
-  products.unshift({ id:uid(), name, market:mkt, price, date:today, category:'', note:'', img:null, createdAt:new Date().toISOString() });
+  const existingProd = products.find(p => p.name.trim().toLowerCase() === name.toLowerCase() && p.brand);
+  const brand = existingProd ? existingProd.brand : '';
+  products.unshift({ id:uid(), name, brand, market:mkt, price, date:today, category:'', note:'', img:null, createdAt:new Date().toISOString() });
   save(); renderAll(); renderCmpRecords();
   document.getElementById('cmpMkt').value='';
   document.getElementById('cmpPrice').value='';
@@ -3938,6 +3966,7 @@ function openAdd(prefill={}) {
   resetAddForm(); 
   document.getElementById('addOv').classList.add('open');
   if(prefill.name)   document.getElementById('pName').value   = prefill.name;
+  if(prefill.brand)  document.getElementById('pBrand').value  = prefill.brand;
   if(prefill.price)  document.getElementById('pPrice').value  = prefill.price;
   if(prefill.market) document.getElementById('pMarket').value = prefill.market;
   setAddPay('kredi_karti');
@@ -3946,6 +3975,7 @@ function openAdd(prefill={}) {
 function closeAdd() { document.getElementById('addOv').classList.remove('open'); resetAddForm(); }
 function resetAddForm() {
   document.getElementById('addForm').reset(); imgB64=null;
+  if(document.getElementById('pBrand')) document.getElementById('pBrand').value = '';
   document.getElementById('pImg').value = '';
   document.getElementById('imgPreview').src = '';
   document.getElementById('imgPreview').style.display='none';
@@ -3969,6 +3999,7 @@ function pickAC(name) {
   document.getElementById('acList').style.display='none';
   const last=[...products].reverse().find(p=>p.name.trim().toLowerCase()===name.toLowerCase());
   if(last&&last.category) document.getElementById('pCat').value=last.category;
+  if(last&&last.brand&&document.getElementById('pBrand')&&!document.getElementById('pBrand').value) document.getElementById('pBrand').value=last.brand;
 }
 
 function compressImage(file, maxWidth = 480, maxHeight = 480, quality = 0.72) {
@@ -4044,52 +4075,72 @@ function removeImg() {
 function submitProduct(e) {
   e.preventDefault();
   const name=document.getElementById('pName').value.trim(), market=document.getElementById('pMarket').value.trim();
+  const brand=document.getElementById('pBrand')?document.getElementById('pBrand').value.trim():'';
   const price=parseFloat(document.getElementById('pPrice').value), date=document.getElementById('pDate').value;
   const cat=document.getElementById('pCat').value, note=document.getElementById('pNote').value.trim();
   if(!name||!market||isNaN(price)||price<0||!date){toast('Zorunlu alanları doldurun!','err');return;}
   
   const payMethod = document.getElementById('addPayMethod') ? document.getElementById('addPayMethod').value : 'kredi_karti';
   const syncFinance = document.getElementById('addSyncFinance') ? document.getElementById('addSyncFinance').checked : true;
-
-  products.unshift({id:uid(),name,market,price,date,category:cat,note,img:imgB64,paymentMethod:payMethod,createdAt:new Date().toISOString()});
-  save(); renderAll(); closeAdd();
+  const prodId = uid();
+  let createdFinId = null;
 
   if (syncFinance && price > 0) {
+    const brandSuffix = brand ? ` (${brand})` : '';
     if (payMethod === 'metropol') {
       deductMetropolBalance(price);
-      addFinanceTransaction({
+      createdFinId = addFinanceTransaction({
         type: 'gider',
         amount: price,
         catId: 'yemek',
-        desc: `[Metropol] ${market} - ${name}`,
+        desc: `[Metropol] ${market} - ${name}${brandSuffix}`,
         date,
-        paymentMethod: 'metropol'
+        paymentMethod: 'metropol',
+        productId: prodId
       });
       toast(`✓ "${name}" eklendi, Metropol bakiyenizden ${fmt(price)} ₺ düşüldü!`, 'ok');
     } else if (payMethod === 'kredi_karti') {
-      addFinanceTransaction({
+      createdFinId = addFinanceTransaction({
         type: 'gider',
         amount: price,
         catId: 'kredi',
-        desc: `[Kredi Kartı] ${market} - ${name}`,
+        desc: `[Kredi Kartı] ${market} - ${name}${brandSuffix}`,
         date,
-        paymentMethod: 'kredi_karti'
+        paymentMethod: 'kredi_karti',
+        productId: prodId
       });
       toast(`✓ "${name}" eklendi ve Kredi Kartı gideri yazıldı!`, 'ok');
     } else {
-      addFinanceTransaction({
+      createdFinId = addFinanceTransaction({
         type: 'gider',
         amount: price,
         catId: 'market-g',
-        desc: `[Nakit] ${market} - ${name}`,
+        desc: `[Nakit] ${market} - ${name}${brandSuffix}`,
         date,
-        paymentMethod: 'nakit'
+        paymentMethod: 'nakit',
+        productId: prodId
       });
       toast(`✓ "${name}" eklendi ve Nakit gider yazıldı!`, 'ok');
     }
   } else {
     toast(`✓ "${name}" eklendi!`, 'ok');
   }
+
+  products.unshift({
+    id: prodId,
+    name,
+    brand,
+    market,
+    price,
+    date,
+    category: cat,
+    note,
+    img: imgB64,
+    paymentMethod: payMethod,
+    financeId: createdFinId,
+    createdAt: new Date().toISOString()
+  });
+  save(); renderAll(); closeAdd();
 }
 
 function openOCR() {
@@ -4884,7 +4935,7 @@ function addSelectedOcr() {
     totalAmount += item.price;
     learnOcrProduct(item.rawLine || item.name, finalName, item.price, mkt);
     learnedCount++;
-    products.unshift({ id:uid(), name:finalName, market:mkt, price:item.price, date, category:'', note:'OCR ile eklendi', img:null, paymentMethod:payMethod, createdAt:new Date().toISOString() });
+    products.unshift({ id:uid(), name:finalName, brand:'', market:mkt, price:item.price, date, category:'', note:'OCR ile eklendi', img:null, paymentMethod:payMethod, createdAt:new Date().toISOString() });
   });
 
   const userTotEl = document.getElementById('ocrTotalAmount');
@@ -4991,6 +5042,7 @@ function openDet(id) {
     ${p.img?`<img class="di" src="${p.img}" alt="${x(p.name)}">`:`<div class="di-ph">${e}</div>`}
     <div class="dp">${fmt(p.price)}<span class="tl">₺</span></div>
     <div class="dl"><span>🏪 Market</span><span style="display:flex;align-items:center;gap:6px"><span style="width:7px;height:7px;border-radius:50%;background:${c};display:inline-block"></span>${x(p.market)}</span></div>
+    ${p.brand?`<div class="dl"><span>🏷️ Marka</span><span style="font-weight:600;color:var(--txt)">${x(p.brand)}</span></div>`:''}
     <div class="dl"><span>📅 Tarih</span><span>${fmtD(p.date)}</span></div>
     ${p.category?`<div class="dl"><span>🏷️ Kategori</span><span>${e} ${x(p.category)}</span></div>`:''}
     ${p.note?`<div class="dl"><span>📝 Not</span><span style="max-width:60%;text-align:right">${x(p.note)}</span></div>`:''}
@@ -5002,13 +5054,142 @@ function openDet(id) {
 }
 function closeDet() { document.getElementById('detOv').classList.remove('open'); }
 
-function delProduct(id) {
-  const p=products.find(p=>p.id===id);
-  if(!p||!confirm(`"${p.name}" kaydını silmek istediğinizden emin misiniz?`)) return;
-  products=products.filter(p=>p.id!==id);
-  save();renderAll();closeDet();
+function findLinkedFinanceTx(p) {
+  if (!p) return null;
+  loadFinance();
+  if (!financeData || !financeData.length) return null;
+  if (p.financeId) {
+    const direct = financeData.find(t => t.id === p.financeId);
+    if (direct) return direct;
+  }
+  const byProdId = financeData.find(t => t.productId === p.id);
+  if (byProdId) return byProdId;
+  const pPrice = Number(p.price) || 0;
+  const pName = (p.name || '').trim().toLowerCase();
+  const pMarket = (p.market || '').trim().toLowerCase();
+  return financeData.find(t => {
+    if (t.type !== 'gider') return false;
+    const amtMatch = Math.abs(Number(t.amount) - pPrice) < 0.01;
+    const desc = (t.desc || '').toLowerCase();
+    if (amtMatch && pName && desc.includes(pName)) return true;
+    if (amtMatch && pMarket && desc.includes(pMarket) && t.date === p.date) return true;
+    return false;
+  }) || null;
+}
+
+function delProduct(id, alsoDeleteExpense) {
+  const p = products.find(p => p.id === id);
+  if (!p) return;
+
+  if (typeof alsoDeleteExpense === 'boolean') {
+    executeDeleteProduct(id, alsoDeleteExpense);
+    return;
+  }
+
+  const modal = document.getElementById('delProdConfirmOv');
+  if (!modal) {
+    if (!confirm(`"${p.name}" kaydını silmek istediğinizden emin misiniz?`)) return;
+    const delExp = confirm(`Bu ürünle ilişkili harcama kaydı Finans (Gelir-Gider) modülünden de silinsin mi?`);
+    executeDeleteProduct(id, delExp);
+    return;
+  }
+
+  const matchTx = findLinkedFinanceTx(p);
+  const titleEl = document.getElementById('delProdConfirmText');
+  const alertEl = document.getElementById('delProdFinAlert');
+  const btnsEl = document.getElementById('delProdActionButtons');
+
+  if (titleEl) {
+    titleEl.innerHTML = `<strong>${x(p.name)}</strong> (${x(p.market)} - ${fmt(p.price)} ₺) kaydını silmek üzeresiniz.`;
+  }
+
+  if (matchTx) {
+    if (alertEl) {
+      alertEl.innerHTML = `
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;font-size:13px;color:var(--txt2);margin-bottom:14px;text-align:left;line-height:1.5;">
+          💡 <strong>Gelir-Gider Modülü Bağlantısı Bulundu:</strong><br>
+          Bu ürünle ilişkili <strong>${fmt(matchTx.amount)} ₺</strong> tutarındaki harcama kaydı (<span style="color:var(--pri);font-weight:600;">${x(matchTx.desc)}</span>) Finans bölümünden de silinsin mi?
+        </div>
+      `;
+    }
+    if (btnsEl) {
+      btnsEl.innerHTML = `
+        <button type="button" class="btn-del" onclick="executeDeleteProduct('${p.id}', true)" style="width:100%;padding:12px;font-size:13px;background:var(--err,#ef4444);color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600;">
+          🗑️ Evet, Ürünü ve Gider Kaydını Sil
+        </button>
+        <button type="button" onclick="executeDeleteProduct('${p.id}', false)" style="width:100%;padding:11px;font-size:13px;background:var(--bg2,#222);color:var(--txt);border:1px solid var(--border,#444);border-radius:8px;cursor:pointer;font-weight:600;">
+          Hayır, Sadece Ürünü Sil (Gider Kalsın)
+        </button>
+        <button type="button" onclick="closeDelProdConfirm()" style="width:100%;padding:9px;font-size:12.5px;background:transparent;color:var(--txt3);border:none;cursor:pointer;">
+          Vazgeç
+        </button>
+      `;
+    }
+  } else {
+    if (alertEl) {
+      alertEl.innerHTML = `
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;font-size:13px;color:var(--txt2);margin-bottom:14px;text-align:left;line-height:1.5;">
+          Bu ürün Market listenizden tamamen kaldırılacaktır.
+        </div>
+      `;
+    }
+    if (btnsEl) {
+      btnsEl.innerHTML = `
+        <button type="button" class="btn-del" onclick="executeDeleteProduct('${p.id}', false)" style="width:100%;padding:12px;font-size:13px;background:var(--err,#ef4444);color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600;">
+          🗑️ Ürünü Sil
+        </button>
+        <button type="button" onclick="closeDelProdConfirm()" style="width:100%;padding:9px;font-size:12.5px;background:transparent;color:var(--txt3);border:none;cursor:pointer;">
+          Vazgeç
+        </button>
+      `;
+    }
+  }
+
+  modal.classList.add('open');
+}
+
+function closeDelProdConfirm() {
+  const el = document.getElementById('delProdConfirmOv');
+  if (el) el.classList.remove('open');
+}
+
+function executeDeleteProduct(id, alsoDeleteExpense) {
+  const p = products.find(x => x.id === id);
+  if (!p) return;
+
+  let finDeleted = false;
+  if (alsoDeleteExpense) {
+    const tx = findLinkedFinanceTx(p);
+    if (tx) {
+      if (tx.type === 'gelir' && (tx.catId === 'yemek-gelir' || tx.paymentMethod === 'metropol')) {
+        deductMetropolBalance(tx.amount);
+      } else if (tx.type === 'gider' && tx.paymentMethod === 'metropol') {
+        addMetropolBalance(tx.amount);
+      }
+      financeData = financeData.filter(item => item.id !== tx.id);
+      saveFinance();
+      if (typeof sbDeleteFinanceItem === 'function') sbDeleteFinanceItem(tx.id);
+      finDeleted = true;
+      if (currentFinTab === 'dash') renderFinDash();
+      if (currentFinTab === 'trans') renderFinTrans();
+      if (currentFinTab === 'month') renderFinMonth();
+      if (typeof updateHomeSummary === 'function') updateHomeSummary();
+      if (typeof renderInvest === 'function') renderInvest();
+    }
+  }
+
+  products = products.filter(x => x.id !== id);
+  save();
+  renderAll();
+  closeDet();
+  closeDelProdConfirm();
   if (typeof sbDeleteProductItem === 'function') sbDeleteProductItem(id);
-  toast(`🗑 "${p.name}" silindi.`);
+
+  if (finDeleted) {
+    toast(`🗑 "${p.name}" ve ilişkili harcama kaydı silindi.`, 'ok');
+  } else {
+    toast(`🗑 "${p.name}" silindi.`);
+  }
 }
 
 function ovClick(e,id,fn) { if(e.target===document.getElementById(id)) fn(); }
@@ -5027,7 +5208,7 @@ function x(s)   { return String(s == null ? '' : s).replace(/&/g,'&amp;').replac
 function xa(s)  { return String(s == null ? '' : s).replace(/\\/g,"\\\\").replace(/'/g,"\\'").replace(/"/g,'&quot;').replace(/`/g,'\\`'); }
 
 document.addEventListener('keydown', e=>{
-  if(e.key==='Escape'){ closeAdd();closeOCR();closeDet(); }
+  if(e.key==='Escape'){ closeAdd();closeOCR();closeDet();closeDelProdConfirm(); }
   if((e.ctrlKey||e.metaKey)&&e.key==='n'){ e.preventDefault(); openAdd(); }
 });
 
@@ -5329,20 +5510,23 @@ const FIN_CATS = {
 
 function addFinanceTransaction(data) {
   loadFinance();
+  const newId = uid();
   financeData.push({
-    id: uid(),
+    id: newId,
     type: data.type || 'gider',
     amount: data.amount,
     catId: data.catId,
     desc: data.desc,
     date: data.date,
     paymentMethod: data.paymentMethod || 'nakit',
+    productId: data.productId || null,
     createdAt: Date.now()
   });
   saveFinance();
   if (currentFinTab === 'dash')  renderFinDash();
   if (currentFinTab === 'trans') renderFinTrans();
   if (currentFinTab === 'month') renderFinMonth();
+  return newId;
 }
 
 function loadFinance() {
@@ -6343,6 +6527,7 @@ async function sbPullUserData(username) {
       products = prodRes.data.map(d => ({
         id: d.id,
         name: d.name,
+        brand: d.brand || '',
         category: d.category,
         price: Number(d.price),
         market: d.market,
@@ -6429,16 +6614,26 @@ async function sbPushExistingProducts(username) {
   const sb = await initSupabase();
   if (!sb || !products || !products.length) return;
   const dbUser = getDbUsername(username);
-  const rows = products.map(p => ({
-    id: String(p.id),
-    username: dbUser,
-    name: p.name || '',
-    category: p.category || '',
-    price: Number(p.price || 0),
-    market: p.market || '',
-    image_url: p.img || ''
-  }));
-  try { await sb.from('mt_products').upsert(rows); } catch(e) {}
+  const rows = products.map(p => {
+    const row = {
+      id: String(p.id),
+      username: dbUser,
+      name: p.name || '',
+      category: p.category || '',
+      price: Number(p.price || 0),
+      market: p.market || '',
+      image_url: p.img || ''
+    };
+    if (p.brand) row.brand = p.brand;
+    return row;
+  });
+  try {
+    const { error } = await sb.from('mt_products').upsert(rows);
+    if (error && error.message && error.message.includes('brand')) {
+      const fallbackRows = rows.map(({ brand, ...rest }) => rest);
+      await sb.from('mt_products').upsert(fallbackRows);
+    }
+  } catch(e) {}
 }
 
 async function sbSyncUserToCloud(user) {

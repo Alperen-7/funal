@@ -118,6 +118,7 @@ async function sbPullUserData(username) {
       products = prodRes.data.map(d => ({
         id: d.id,
         name: d.name,
+        brand: d.brand || '',
         category: d.category,
         price: Number(d.price),
         market: d.market,
@@ -196,16 +197,26 @@ async function sbPushExistingBills(username) {
 async function sbPushExistingProducts(username) {
   const sb = await initSupabase();
   if (!sb || !products || !products.length) return;
-  const rows = products.map(p => ({
-    id: String(p.id),
-    username: username.toLowerCase(),
-    name: p.name || '',
-    category: p.category || '',
-    price: Number(p.price || 0),
-    market: p.market || '',
-    image_url: p.img || ''
-  }));
-  try { await sb.from('mt_products').upsert(rows); } catch(e) {}
+  const rows = products.map(p => {
+    const row = {
+      id: String(p.id),
+      username: username.toLowerCase(),
+      name: p.name || '',
+      category: p.category || '',
+      price: Number(p.price || 0),
+      market: p.market || '',
+      image_url: p.img || ''
+    };
+    if (p.brand) row.brand = p.brand;
+    return row;
+  });
+  try {
+    const { error } = await sb.from('mt_products').upsert(rows);
+    if (error && error.message && error.message.includes('brand')) {
+      const fallbackRows = rows.map(({ brand, ...rest }) => rest);
+      await sb.from('mt_products').upsert(fallbackRows);
+    }
+  } catch(e) {}
 }
 
 async function sbAddFinanceItem(item, username) {

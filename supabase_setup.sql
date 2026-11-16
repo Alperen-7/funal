@@ -47,12 +47,15 @@ CREATE TABLE IF NOT EXISTS public.mt_products (
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL,
     name TEXT NOT NULL,
+    brand TEXT,
     category TEXT,
     price NUMERIC(14, 2) NOT NULL,
     market TEXT,
     image_url TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.mt_products ADD COLUMN IF NOT EXISTS brand TEXT;
 
 CREATE TABLE IF NOT EXISTS public.mt_login_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
