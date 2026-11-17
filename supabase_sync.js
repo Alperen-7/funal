@@ -630,3 +630,18 @@ async function sbSyncGlobalOcrBrain() {
     }
   } catch(e) {}
 }
+
+async function sbSavePushSubscription(subscriptionPayload, username) {
+  const sb = await initSupabase();
+  if (!sb || !username || !subscriptionPayload || !subscriptionPayload.endpoint) return;
+  try {
+    await sb.from('mt_push_subscriptions').upsert([{
+      username: username.toLowerCase(),
+      endpoint: subscriptionPayload.endpoint,
+      p256dh: subscriptionPayload.p256dh,
+      auth: subscriptionPayload.auth,
+      user_agent: subscriptionPayload.user_agent || '',
+      updated_at: new Date().toISOString()
+    }], { onConflict: 'endpoint' });
+  } catch(e) {}
+}

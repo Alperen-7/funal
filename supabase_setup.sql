@@ -96,3 +96,23 @@ CREATE INDEX IF NOT EXISTS idx_invest_user ON public.mt_investments(username);
 CREATE INDEX IF NOT EXISTS idx_bills_user ON public.mt_bills(username);
 CREATE INDEX IF NOT EXISTS idx_products_user ON public.mt_products(username);
 CREATE INDEX IF NOT EXISTS idx_logs_created ON public.mt_login_logs(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.mt_push_subscriptions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username TEXT NOT NULL,
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    user_agent TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.mt_bills ADD COLUMN IF NOT EXISTS due_date DATE;
+ALTER TABLE public.mt_bills ADD COLUMN IF NOT EXISTS is_notified BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.mt_bills ADD COLUMN IF NOT EXISTS notified_at TIMESTAMPTZ;
+ALTER TABLE public.mt_users ADD COLUMN IF NOT EXISTS email TEXT;
+
+ALTER TABLE public.mt_push_subscriptions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "mt_push_subscriptions_all" ON public.mt_push_subscriptions FOR ALL USING (true) WITH CHECK (true);
+CREATE INDEX IF NOT EXISTS idx_push_user ON public.mt_push_subscriptions(username);
