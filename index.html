@@ -223,7 +223,10 @@
     </div>
 
     <div class="admin-badge-wrap" id="hdrAdminBadge" style="display:none">
-      <span class="admin-badge-name">👤 Admin</span>
+      <button type="button" class="btn-sec" onclick="openUserSettingsModal()" title="Kullanıcı İşlemleri ve Ayarlar" style="padding:4px 9px;font-size:12px;border-radius:var(--pill);display:inline-flex;align-items:center;gap:4px;cursor:pointer;">
+        <span class="admin-badge-name">👤 Admin</span>
+        <span style="font-size:11px;opacity:0.85;">⚙️</span>
+      </button>
       <button class="btn-logout" onclick="handleLogout()" title="Oturumu Kapat">Çıkış</button>
     </div>
   </div>
@@ -234,8 +237,8 @@
   <section class="sec-page active" id="sec-home">
     <div class="landing">
       <div class="landing-hero">
-        <div class="landing-badge">✨ Kişisel Finans & Takip Sistemi</div>
-        <h1>Hoş Geldiniz, <em id="homeWelcomeUser">Kullanıcı</em> 👋</h1>
+        <div class="landing-badge" style="cursor:pointer;" onclick="openUserSettingsModal()">✨ Kişisel Finans & Takip Sistemi · ⚙️ Kullanıcı İşlemleri</div>
+        <h1>Hoş Geldiniz, <em id="homeWelcomeUser" style="cursor:pointer;text-decoration:underline dashed;" onclick="openUserSettingsModal()" title="Kullanıcı İşlemleri için tıklayın">Kullanıcı</em> 👋</h1>
         <p>Yönetmek istediğiniz finansal alanı seçin</p>
 
         <div class="home-wealth-bar" id="homeWealthBar">
@@ -1156,6 +1159,101 @@
       <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">
         <button type="button" class="btn-sec" onclick="closeCropModal()">İptal</button>
         <button type="button" class="btn-pri" onclick="applyCroppedImage()">✓ Seçilen Alanı Kırp ve Ekle</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="ov" id="userSettingsOv" onclick="ovClick(event,'userSettingsOv',closeUserSettingsModal)">
+  <div class="modal" role="dialog" aria-modal="true" style="max-width:520px;width:95%;">
+    <div class="mh">
+      <h2>⚙️ Kullanıcı İşlemleri & Ayarlar</h2>
+      <button type="button" class="mcls" onclick="closeUserSettingsModal()">✕</button>
+    </div>
+    <div style="padding:16px 20px;">
+      <div style="background:var(--bg-surface2);border:1px solid var(--bdr);border-radius:12px;padding:12px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <div style="font-size:11px;color:var(--txt3);">Aktif Hesap</div>
+          <div style="font-size:16px;font-weight:800;color:var(--txt);" id="settingsUsernameDisplay">Admin</div>
+        </div>
+        <div id="settingsRoleBadge" style="font-size:11px;padding:3px 10px;border-radius:9999px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:var(--pri-light);font-weight:700;">Yönetici</div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid var(--bdr);padding-bottom:10px;">
+        <button type="button" class="pay-btn active" id="btnSettingsTabNotifications" onclick="switchSettingsTab('notifications')">🔔 Bildirimler</button>
+        <button type="button" class="pay-btn" id="btnSettingsTabSecurity" onclick="switchSettingsTab('security')">🔑 Şifre Değiştir</button>
+      </div>
+
+      <div id="settingsTabContentNotifications">
+        <div style="margin-bottom:18px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <div>
+              <strong style="font-size:14px;color:var(--txt);">🌐 Web Push Bildirimleri</strong>
+              <div style="font-size:12px;color:var(--txt2);">Fatura son ödeme günlerinde tarayıcınıza anlık bildirim yollanır.</div>
+            </div>
+            <span id="settingsWebPushStatusBadge" style="font-size:11px;padding:2px 8px;border-radius:6px;font-weight:700;background:rgba(255,255,255,0.06);color:var(--txt3);">Kapalı</span>
+          </div>
+          <div style="margin-top:8px;" id="settingsWebPushActionArea"></div>
+        </div>
+
+        <div style="border-top:1px solid var(--bdr);padding-top:16px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px;">
+            <input type="checkbox" id="settingEmailNotifyCheckbox" onchange="toggleEmailNotificationSetting(event)" style="accent-color:var(--pri);width:16px;height:16px;" />
+            <strong style="font-size:14px;color:var(--txt);">✉️ E-Posta ile Hatırlatma Al</strong>
+          </label>
+          <div style="font-size:12px;color:var(--txt2);margin-bottom:10px;">Faturanın son ödeme gününde detaylı bilgi e-posta adresinize iletilir.</div>
+
+          <div id="settingsEmailSectionWrap" style="display:none;background:var(--bg-surface2);border:1px solid var(--bdr);border-radius:10px;padding:12px 14px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <label for="settingsEmailInput" style="font-size:12px;color:var(--txt);font-weight:600;">E-Posta Adresi *</label>
+              <span id="settingsEmailStatusBadge" style="font-size:11px;padding:2px 8px;border-radius:6px;font-weight:700;">Doğrulanmadı ⚠️</span>
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:8px;">
+              <input type="email" id="settingsEmailInput" placeholder="ornek@alanadi.com" style="flex:1;background:var(--bg-surface);border:1px solid var(--bdr);color:var(--txt);padding:8px 12px;border-radius:8px;font-size:13px;" />
+              <button type="button" class="btn-pri" id="btnSendEmailVerifyCode" style="width:auto;white-space:nowrap;padding:8px 14px;font-size:12px;" onclick="sendEmailVerificationCode()">📨 Kod Gönder</button>
+            </div>
+            <div id="settingsEmailVerifyBox" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--bdr);">
+              <div style="font-size:11.5px;color:var(--txt2);margin-bottom:6px;">E-postanıza gönderilen 6 haneli doğrulama kodunu girin:</div>
+              <div style="display:flex;gap:8px;">
+                <input type="text" id="settingsEmailVerifyCodeInput" placeholder="6 Haneli Kod" maxlength="6" style="width:140px;text-align:center;font-weight:800;letter-spacing:2px;background:var(--bg-surface);border:1px solid var(--bdr);color:var(--txt);padding:8px 10px;border-radius:8px;font-size:14px;" />
+                <button type="button" class="btn-pri" style="width:auto;padding:8px 16px;font-size:12px;" onclick="confirmEmailVerificationCode()">✓ Kodu Onayla</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="settingsTabContentSecurity" style="display:none;">
+        <div style="font-size:12px;color:var(--txt2);margin-bottom:12px;">Şifrenizi (PIN) değiştirmek için kimliğinizi güvenlik sorusu veya kayıt anahtarınızla doğrulamanız gerekmektedir:</div>
+        
+        <div style="display:flex;gap:8px;margin-bottom:12px;">
+          <button type="button" class="pay-btn active" id="btnPinAuthSecQ" onclick="setPinAuthMethod('secq')">🛡️ Güvenlik Sorusu</button>
+          <button type="button" class="pay-btn" id="btnPinAuthRecKey" onclick="setPinAuthMethod('reckey')">🔑 Correlation Anahtarı</button>
+        </div>
+
+        <div id="pinAuthSecQWrap" style="margin-bottom:14px;">
+          <label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:4px;">Kayıtlı Güvenlik Sorunuz:</label>
+          <div id="settingsSecQQuestion" style="font-size:13px;font-weight:700;color:var(--txt);margin-bottom:6px;background:var(--bg-surface2);padding:6px 10px;border-radius:6px;border:1px solid var(--bdr);">En sevdiğin renk?</div>
+          <input type="text" id="settingsSecAInput" placeholder="Güvenlik sorunuzun cevabı" autocomplete="off" style="width:100%;box-sizing:border-box;background:var(--bg-surface2);border:1px solid var(--bdr);color:var(--txt);padding:8px 12px;border-radius:8px;font-size:13px;" />
+        </div>
+
+        <div id="pinAuthRecKeyWrap" style="display:none;margin-bottom:14px;">
+          <label for="settingsRecKeyInput" style="font-size:12px;color:var(--txt2);display:block;margin-bottom:4px;">16 Haneli Correlation / Kurtarma Anahtarınız:</label>
+          <input type="text" id="settingsRecKeyInput" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="19" autocomplete="off" style="width:100%;box-sizing:border-box;font-family:monospace;letter-spacing:1px;background:var(--bg-surface2);border:1px solid var(--bdr);color:var(--txt);padding:8px 12px;border-radius:8px;font-size:13px;" />
+          <div style="font-size:11px;color:var(--txt3);margin-top:4px;">Kayıt olurken size verilen 16 haneli SQL NEWID formatındaki anahtar.</div>
+        </div>
+
+        <div style="border-top:1px solid var(--bdr);padding-top:14px;margin-top:14px;">
+          <div style="margin-bottom:10px;">
+            <label for="settingsNewPinInput" style="font-size:12px;color:var(--txt);font-weight:600;display:block;margin-bottom:4px;">Yeni 6 Haneli PIN / Şifre *</label>
+            <input type="password" id="settingsNewPinInput" placeholder="6 haneli rakam" maxlength="6" inputmode="numeric" style="width:100%;box-sizing:border-box;background:var(--bg-surface2);border:1px solid var(--bdr);color:var(--txt);padding:8px 12px;border-radius:8px;font-size:13px;" />
+          </div>
+          <div style="margin-bottom:14px;">
+            <label for="settingsConfirmPinInput" style="font-size:12px;color:var(--txt);font-weight:600;display:block;margin-bottom:4px;">Yeni PIN (Tekrar) *</label>
+            <input type="password" id="settingsConfirmPinInput" placeholder="Yeni PIN tekrarı" maxlength="6" inputmode="numeric" style="width:100%;box-sizing:border-box;background:var(--bg-surface2);border:1px solid var(--bdr);color:var(--txt);padding:8px 12px;border-radius:8px;font-size:13px;" />
+          </div>
+          <button type="button" class="btn-pri" style="width:100%;padding:10px;" onclick="submitChangeUserPin()">✓ Şifreyi / PIN'i Güncelle</button>
+        </div>
       </div>
     </div>
   </div>
@@ -3670,6 +3768,329 @@ async function requestNotificationPermission() {
   } catch(e) {
     toast('Bildirim izni istenirken hata oluştu.', 'err');
   }
+}
+
+let currentPinAuthMethod = 'secq';
+let pendingEmailVerificationCode = null;
+let pendingEmailAddress = null;
+let pendingEmailExpiry = 0;
+
+function openUserSettingsModal() {
+  const activeUser = localStorage.getItem(AUTH_KEY);
+  if (!activeUser) return;
+  loadUsers();
+  const user = usersList.find(u => u.username.toLowerCase() === activeUser.toLowerCase());
+  if (!user) return;
+
+  const userDisplay = document.getElementById('settingsUsernameDisplay');
+  if (userDisplay) userDisplay.textContent = formatUserName(user.username);
+
+  const roleBadge = document.getElementById('settingsRoleBadge');
+  if (roleBadge) {
+    const isAdmin = user.username.toLowerCase() === 'admin';
+    roleBadge.textContent = isAdmin ? 'Yönetici' : 'Standart Kullanıcı';
+    roleBadge.style.background = isAdmin ? 'rgba(99,102,241,0.15)' : 'rgba(16,185,129,0.15)';
+    roleBadge.style.color = isAdmin ? 'var(--pri-light)' : 'var(--income)';
+    roleBadge.style.borderColor = isAdmin ? 'rgba(99,102,241,0.3)' : 'rgba(16,185,129,0.3)';
+  }
+
+  const qEl = document.getElementById('settingsSecQQuestion');
+  if (qEl) qEl.textContent = user.secQ || 'En sevdiğin renk?';
+
+  switchSettingsTab('notifications');
+  setPinAuthMethod('secq');
+  updateSettingsNotificationUI();
+
+  const ov = document.getElementById('userSettingsOv');
+  if (ov) ov.classList.add('open');
+}
+
+function closeUserSettingsModal() {
+  const ov = document.getElementById('userSettingsOv');
+  if (ov) ov.classList.remove('open');
+  const secA = document.getElementById('settingsSecAInput');
+  if (secA) secA.value = '';
+  const recK = document.getElementById('settingsRecKeyInput');
+  if (recK) recK.value = '';
+  const np = document.getElementById('settingsNewPinInput');
+  if (np) np.value = '';
+  const cp = document.getElementById('settingsConfirmPinInput');
+  if (cp) cp.value = '';
+}
+
+function switchSettingsTab(tabName) {
+  const tabNotif = document.getElementById('settingsTabContentNotifications');
+  const tabSec = document.getElementById('settingsTabContentSecurity');
+  const btnNotif = document.getElementById('btnSettingsTabNotifications');
+  const btnSec = document.getElementById('btnSettingsTabSecurity');
+
+  if (tabName === 'security') {
+    if (tabNotif) tabNotif.style.display = 'none';
+    if (tabSec) tabSec.style.display = 'block';
+    if (btnNotif) btnNotif.classList.remove('active');
+    if (btnSec) btnSec.classList.add('active');
+  } else {
+    if (tabNotif) tabNotif.style.display = 'block';
+    if (tabSec) tabSec.style.display = 'none';
+    if (btnNotif) btnNotif.classList.add('active');
+    if (btnSec) btnSec.classList.remove('active');
+  }
+}
+
+function updateSettingsNotificationUI() {
+  const activeUser = localStorage.getItem(AUTH_KEY);
+  if (!activeUser) return;
+  loadUsers();
+  const user = usersList.find(u => u.username.toLowerCase() === activeUser.toLowerCase()) || {};
+
+  const webPushBadge = document.getElementById('settingsWebPushStatusBadge');
+  const webPushAction = document.getElementById('settingsWebPushActionArea');
+  const isGranted = typeof Notification !== 'undefined' && Notification.permission === 'granted' && user.webPushEnabled !== false;
+
+  if (webPushBadge) {
+    webPushBadge.textContent = isGranted ? 'Aktif 🟢' : 'Kapalı ⚪';
+    webPushBadge.style.color = isGranted ? 'var(--income)' : 'var(--txt3)';
+    webPushBadge.style.background = isGranted ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.06)';
+  }
+  if (webPushAction) {
+    webPushAction.innerHTML = isGranted
+      ? `<button type="button" class="btn-sec" style="font-size:12px;padding:6px 12px;color:var(--expense);border-color:rgba(239,68,68,0.4);" onclick="disableWebPushNotifications()">🔕 Web Bildirimlerini Kapat</button>`
+      : `<button type="button" class="btn-pri" style="font-size:12px;padding:6px 14px;width:auto;" onclick="enableWebPushNotifications()">🔔 Web Bildirimlerini Aç</button>`;
+  }
+
+  const emailCheckbox = document.getElementById('settingEmailNotifyCheckbox');
+  const emailWrap = document.getElementById('settingsEmailSectionWrap');
+  const emailInput = document.getElementById('settingsEmailInput');
+  const emailBadge = document.getElementById('settingsEmailStatusBadge');
+
+  const hasEmailNotify = Boolean(user.emailNotifications);
+  if (emailCheckbox) emailCheckbox.checked = hasEmailNotify;
+  if (emailWrap) emailWrap.style.display = hasEmailNotify ? 'block' : 'none';
+  if (emailInput && !emailInput.value) emailInput.value = user.email || '';
+
+  if (emailBadge) {
+    const isVerified = Boolean(user.email && user.emailVerified);
+    emailBadge.textContent = isVerified ? '✓ Doğrulandı 🟢' : 'Doğrulanmadı ⚠️';
+    emailBadge.style.color = isVerified ? 'var(--income)' : 'var(--amber)';
+    emailBadge.style.background = isVerified ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)';
+  }
+}
+
+async function disableWebPushNotifications() {
+  const activeUser = localStorage.getItem(AUTH_KEY);
+  if (activeUser) {
+    loadUsers();
+    const user = usersList.find(u => u.username.toLowerCase() === activeUser.toLowerCase());
+    if (user) {
+      user.webPushEnabled = false;
+      saveUsers();
+    }
+    if (typeof sbDeletePushSubscription === 'function') {
+      sbDeletePushSubscription(activeUser);
+    }
+  }
+  toast('Web Push bildirimleri kapatıldı.', 'info');
+  updateSettingsNotificationUI();
+  updatePushBtnState();
+  if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await sub.unsubscribe();
+      }
+    } catch(e) {}
+  }
+}
+
+async function enableWebPushNotifications() {
+  if (typeof Notification === 'undefined' || typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+    toast('Tarayıcınız bildirim özelliğini desteklemiyor.', 'err');
+    return false;
+  }
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') {
+    toast('Bildirim izni reddedildi. Lütfen tarayıcı ayarlarından izin verin.', 'err');
+    updateSettingsNotificationUI();
+    return false;
+  }
+  const activeUser = localStorage.getItem(AUTH_KEY);
+  if (activeUser) {
+    loadUsers();
+    const user = usersList.find(u => u.username.toLowerCase() === activeUser.toLowerCase());
+    if (user) {
+      user.webPushEnabled = true;
+      saveUsers();
+    }
+  }
+  toast('✓ Web Push bildirimleri başarıyla aktif edildi!', 'ok');
+  updateSettingsNotificationUI();
+  updatePushBtnState();
+  try {
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    await navigator.serviceWorker.ready;
+    return true;
+  } catch(e) {
+    return false;
+  }
+}
+
+function toggleEmailNotificationSetting(e) {
+  const isChecked = e.target.checked;
+  const emailWrap = document.getElementById('settingsEmailSectionWrap');
+  if (emailWrap) emailWrap.style.display = isChecked ? 'block' : 'none';
+
+  const activeUser = localStorage.getItem(AUTH_KEY);
+  if (!activeUser) return;
+  loadUsers();
+  const user = usersList.find(u => u.username.toLowerCase() === activeUser.toLowerCase());
+  if (!user) return;
+
+  if (!isChecked) {
+    user.emailNotifications = false;
+    saveUsers();
+    toast('E-posta bildirimleri kapatıldı.', 'info');
+    updateSettingsNotificationUI();
+  } else {
+    if (user.email && user.emailVerified) {
+      user.emailNotifications = true;
+      saveUsers();
+      toast('✓ E-posta bildirimleri açıldı.', 'ok');
+      updateSettingsNotificationUI();
+    } else {
+      toast('Lütfen bildirimleri açabilmek için e-posta adresinizi doğrulayın.', 'err');
+    }
+  }
+}
+
+function sendEmailVerificationCode() {
+  const emailInput = document.getElementById('settingsEmailInput');
+  const email = (emailInput ? emailInput.value : '').trim().toLowerCase();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!email || !emailRegex.test(email)) {
+    toast('Lütfen geçerli bir e-posta adresi girin.', 'err');
+    return;
+  }
+
+  pendingEmailAddress = email;
+  pendingEmailVerificationCode = String(Math.floor(100000 + Math.random() * 900000));
+  pendingEmailExpiry = Date.now() + (10 * 60 * 1000);
+
+  const verifyBox = document.getElementById('settingsEmailVerifyBox');
+  if (verifyBox) verifyBox.style.display = 'block';
+
+  toast(`✓ Doğrulama kodu gönderildi! Kodunuz: ${pendingEmailVerificationCode}`, 'ok');
+}
+
+function confirmEmailVerificationCode() {
+  const codeInput = document.getElementById('settingsEmailVerifyCodeInput');
+  const code = (codeInput ? codeInput.value : '').trim();
+
+  if (!pendingEmailVerificationCode || Date.now() > pendingEmailExpiry) {
+    toast('Doğrulama kodunun süresi dolmuş veya kod üretilmemiş! Lütfen tekrar kod isteyin.', 'err');
+    return;
+  }
+  if (code !== pendingEmailVerificationCode) {
+    toast('❌ Doğrulama kodu hatalı! Lütfen kontrol edip tekrar deneyin.', 'err');
+    return;
+  }
+
+  const activeUser = localStorage.getItem(AUTH_KEY);
+  if (!activeUser) return;
+  loadUsers();
+  const user = usersList.find(u => u.username.toLowerCase() === activeUser.toLowerCase());
+  if (!user) return;
+
+  user.email = pendingEmailAddress;
+  user.emailVerified = true;
+  user.emailNotifications = true;
+  saveUsers();
+
+  pendingEmailVerificationCode = null;
+  pendingEmailAddress = null;
+
+  const verifyBox = document.getElementById('settingsEmailVerifyBox');
+  if (verifyBox) verifyBox.style.display = 'none';
+
+  toast(`✓ ${user.email} adresi doğrulandı ve e-posta bildirimleri aktif edildi!`, 'ok');
+  updateSettingsNotificationUI();
+}
+
+function setPinAuthMethod(method) {
+  currentPinAuthMethod = method;
+  const btnSecQ = document.getElementById('btnPinAuthSecQ');
+  const btnRecKey = document.getElementById('btnPinAuthRecKey');
+  const wrapSecQ = document.getElementById('pinAuthSecQWrap');
+  const wrapRecKey = document.getElementById('pinAuthRecKeyWrap');
+
+  if (method === 'reckey') {
+    if (btnSecQ) btnSecQ.classList.remove('active');
+    if (btnRecKey) btnRecKey.classList.add('active');
+    if (wrapSecQ) wrapSecQ.style.display = 'none';
+    if (wrapRecKey) wrapRecKey.style.display = 'block';
+  } else {
+    if (btnSecQ) btnSecQ.classList.add('active');
+    if (btnRecKey) btnRecKey.classList.remove('active');
+    if (wrapSecQ) wrapSecQ.style.display = 'block';
+    if (wrapRecKey) wrapRecKey.style.display = 'none';
+  }
+}
+
+function submitChangeUserPin() {
+  const activeUser = localStorage.getItem(AUTH_KEY);
+  if (!activeUser) return;
+  loadUsers();
+  const user = usersList.find(u => u.username.toLowerCase() === activeUser.toLowerCase());
+  if (!user) return;
+
+  const newPin = (document.getElementById('settingsNewPinInput')?.value || '').trim();
+  const confirmPin = (document.getElementById('settingsConfirmPinInput')?.value || '').trim();
+
+  if (!/^\d{6}$/.test(newPin)) {
+    toast('PIN tam 6 haneli rakam olmalıdır!', 'err');
+    return;
+  }
+  if (newPin !== confirmPin) {
+    toast('Yeni PIN ve PIN tekrarı birbiriyle eşleşmiyor!', 'err');
+    return;
+  }
+
+  let verified = false;
+  if (currentPinAuthMethod === 'reckey') {
+    const recKey = (document.getElementById('settingsRecKeyInput')?.value || '').trim();
+    if (!recKey) {
+      toast('Lütfen 16 haneli correlation / kurtarma anahtarınızı girin!', 'err');
+      return;
+    }
+    if (user.recoveryKeyHash && hashRecoveryKey(recKey, user.username) === user.recoveryKeyHash) {
+      verified = true;
+    }
+  } else {
+    const secA = (document.getElementById('settingsSecAInput')?.value || '').trim().toLowerCase();
+    if (!secA) {
+      toast('Lütfen güvenlik sorunuzun cevabını girin!', 'err');
+      return;
+    }
+    if (user.secAHash && hashSecAnswer(secA, user.username) === user.secAHash) {
+      verified = true;
+    }
+  }
+
+  if (!verified) {
+    toast(currentPinAuthMethod === 'reckey'
+      ? '❌ 16 haneli correlation / kurtarma anahtarı geçersiz!'
+      : '❌ Güvenlik sorusu cevabı hatalı!', 'err');
+    return;
+  }
+
+  user.pinHash = hashPin(newPin, user.username);
+  saveUsers();
+
+  localStorage.setItem('auth_sess_token', generateSessionToken(user.username, user.pinHash));
+  recordLoginLog(user.username, 'pin_change', 'Kullanıcı profilinden şifre/PIN başarıyla güncellendi');
+
+  toast('✓ Şifreniz / PIN kodunuz başarıyla güncellendi!', 'ok');
+  closeUserSettingsModal();
 }
 
 function payBill(id) {

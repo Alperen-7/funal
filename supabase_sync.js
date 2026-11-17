@@ -645,3 +645,19 @@ async function sbSavePushSubscription(subscriptionPayload, username) {
     }], { onConflict: 'endpoint' });
   } catch(e) {}
 }
+
+async function sbDeletePushSubscription(username) {
+  const sb = await initSupabase();
+  if (!sb || !username) return;
+  try {
+    await sb.from('mt_push_subscriptions').delete().eq('username', username.toLowerCase());
+  } catch(e) {}
+}
+
+async function sbSyncUserEmail(username, email) {
+  const sb = await initSupabase();
+  if (!sb || !username || !email) return;
+  try {
+    await sb.from('mt_users').update({ email: email.toLowerCase(), updated_at: new Date().toISOString() }).eq('username', username.toLowerCase());
+  } catch(e) {}
+}
