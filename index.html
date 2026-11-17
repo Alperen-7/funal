@@ -1193,13 +1193,14 @@
       <div id="settingsTabContentNotifications">
         <div style="margin-bottom:18px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-            <div>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="checkbox" id="settingWebPushCheckbox" onchange="toggleWebPushNotificationSetting(event)" style="accent-color:var(--pri);width:16px;height:16px;" />
               <strong style="font-size:14px;color:var(--txt);">🌐 Web Push Bildirimleri</strong>
-              <div style="font-size:12px;color:var(--txt2);">Fatura son ödeme günlerinde tarayıcınıza anlık bildirim yollanır.</div>
-            </div>
+            </label>
             <span id="settingsWebPushStatusBadge" style="font-size:11px;padding:3px 10px;border-radius:6px;font-weight:700;background:rgba(255,255,255,0.06);color:var(--txt3);pointer-events:none;cursor:default;user-select:none;opacity:0.85;">Pasif</span>
           </div>
-          <div style="margin-top:8px;" id="settingsWebPushActionArea">
+          <div style="font-size:12px;color:var(--txt2);margin-bottom:8px;">Fatura son ödeme günlerinde tarayıcınıza anlık bildirim yollanır.</div>
+          <div id="settingsWebPushActionArea">
             <button type="button" class="btn-pri" id="btnToggleWebPush" style="width:auto;padding:7px 16px;font-size:12.5px;border-radius:8px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;" onclick="enableWebPushNotifications()">🔔 Web Push Bildirimlerini Aç</button>
           </div>
         </div>
@@ -4044,11 +4045,14 @@ function updateSettingsNotificationUI() {
   loadUsers();
   const user = usersList.find(u => u.username.toLowerCase() === activeUser.toLowerCase()) || {};
 
+  const webPushCheckbox = document.getElementById('settingWebPushCheckbox');
   const webPushBadge = document.getElementById('settingsWebPushStatusBadge');
   const webPushAction = document.getElementById('settingsWebPushActionArea');
   const isWebPushActive = user.webPushNotificationEnabled !== undefined
     ? Boolean(user.webPushNotificationEnabled)
     : (user.webPushEnabled !== false && typeof Notification !== 'undefined' && Notification.permission === 'granted');
+
+  if (webPushCheckbox) webPushCheckbox.checked = isWebPushActive;
 
   if (webPushBadge) {
     webPushBadge.textContent = isWebPushActive ? 'Aktif' : 'Pasif';
@@ -4075,7 +4079,7 @@ function updateSettingsNotificationUI() {
           <button type="button" class="btn-pri" id="btnToggleWebPush" style="width:auto;padding:7px 16px;font-size:12.5px;border-radius:8px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;" onclick="enableWebPushNotifications()">
             🔔 Web Push Bildirimlerini Aç
           </button>
-          <span style="font-size:11.5px;color:var(--txt3);">Tarayıcı izni gerektirir</span>
+          <span style="font-size:11.5px;color:var(--txt3);">Tarayıcı bildirimleri kapalı</span>
         </div>
       `;
     }
@@ -4115,6 +4119,15 @@ function updateSettingsNotificationUI() {
   updatePushBtnState();
 }
 
+function toggleWebPushNotificationSetting(e) {
+  const isChecked = e.target ? e.target.checked : Boolean(e);
+  if (isChecked) {
+    enableWebPushNotifications();
+  } else {
+    disableWebPushNotifications();
+  }
+}
+
 async function disableWebPushNotifications() {
   const activeUser = localStorage.getItem(AUTH_KEY);
   if (activeUser) {
@@ -4129,7 +4142,7 @@ async function disableWebPushNotifications() {
       sbDeletePushSubscription(activeUser);
     }
   }
-  toast('Web Push bildirimleri kapatıldı.', 'info');
+  toast('Web Push bildirimleri kapatıldı (Pasif).', 'info');
   updateSettingsNotificationUI();
   updatePushBtnState();
   if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
@@ -4144,19 +4157,6 @@ async function disableWebPushNotifications() {
 }
 
 async function enableWebPushNotifications() {
-  if (typeof Notification === 'undefined' || typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
-    toast('Tarayıcınız bildirim özelliğini desteklemiyor.', 'err');
-    return false;
-  }
-  let perm = Notification.permission;
-  if (perm !== 'granted' && typeof Notification.requestPermission === 'function') {
-    perm = await Notification.requestPermission();
-  }
-  if (perm !== 'granted') {
-    toast('Bildirim izni reddedildi. Lütfen tarayıcı ayarlarından izin verin.', 'err');
-    updateSettingsNotificationUI();
-    return false;
-  }
   const activeUser = localStorage.getItem(AUTH_KEY);
   if (activeUser) {
     loadUsers();
@@ -4170,13 +4170,19 @@ async function enableWebPushNotifications() {
   toast('✓ Web Push bildirimleri başarıyla aktif edildi!', 'ok');
   updateSettingsNotificationUI();
   updatePushBtnState();
-  try {
-    const reg = await navigator.serviceWorker.register('/sw.js');
-    await navigator.serviceWorker.ready;
-    return true;
-  } catch(e) {
-    return false;
+
+  if (typeof Notification !== 'undefined' && Notification.permission !== 'granted' && typeof Notification.requestPermission === 'function') {
+    try {
+      await Notification.requestPermission();
+    } catch(e) {}
   }
+  if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.ready;
+    } catch(e) {}
+  }
+  return true;
 }
 
 function toggleEmailNotificationSetting(e) {
