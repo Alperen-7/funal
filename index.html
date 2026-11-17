@@ -506,6 +506,8 @@
           <p>Hisse senedi (BIST), Döviz (Dolar, Euro, Sterlin), Kripto (BTC, ETH, SOL vb.) ve Altın varlıklarınızı tek ekrandan canlı takip edin.</p>
           <div style="display:flex;gap:16px;margin-top:12px;font-size:13px;color:var(--txt2);flex-wrap:wrap;align-items:center">
             <span>Toplam Maliyet: <strong id="invTotalCost" style="color:var(--txt)">₺ 0,00</strong></span>
+            <span>Güncel Değer: <strong id="invTotalValHeader" style="color:var(--txt)">₺ 0,00</strong></span>
+            <span>Genel K/Z: <strong id="invTotalPnlHeader" style="color:var(--txt)">₺ 0,00</strong></span>
             <span>Varlık Sayısı: <strong id="invTotalCount" style="color:var(--txt)">0</strong></span>
             <div class="inv-auto-pill">
               <span class="inv-auto-pulse"></span>
@@ -516,19 +518,24 @@
         </div>
         <div class="invest-summary-cards">
           <div class="invest-portfolio-card">
-            <div class="invest-pf-lbl">📈 Yatırım Portföyü</div>
-            <div class="invest-pf-val" id="invTotalVal">0,00 ₺</div>
-            <div class="invest-pf-change" id="invTotalPnl">0,00 ₺ (%0,00)</div>
+            <div class="invest-pf-lbl">🏷️ Toplam Maliyet</div>
+            <div class="invest-pf-val" id="invTotalCostCard">0,00 ₺</div>
+            <div class="invest-pf-sub" style="font-size:11.5px;color:var(--txt3);margin-top:2px">Alış Maliyeti Toplamı</div>
           </div>
-          <div class="invest-portfolio-card invest-cash-card">
-            <div class="invest-pf-lbl">💵 Nakit Bakiye</div>
-            <div class="invest-pf-val" id="invCashVal" style="color:var(--income)">0,00 ₺</div>
-            <div class="invest-pf-sub" style="font-size:11.5px;color:var(--txt3);margin-top:2px">Kullanılabilir Net Nakit</div>
+          <div class="invest-portfolio-card">
+            <div class="invest-pf-lbl">📈 Güncel Değer</div>
+            <div class="invest-pf-val" id="invTotalVal">0,00 ₺</div>
+            <div class="invest-pf-sub" style="font-size:11.5px;color:var(--txt3);margin-top:2px">Canlı Piyasa Değeri</div>
+          </div>
+          <div class="invest-portfolio-card">
+            <div class="invest-pf-lbl">📊 Genel Kâr / Zarar</div>
+            <div class="invest-pf-val" id="invTotalPnlVal">0,00 ₺</div>
+            <div class="invest-pf-change" id="invTotalPnl">%0,00</div>
           </div>
           <div class="invest-portfolio-card invest-wealth-card">
             <div class="invest-pf-lbl">💎 Tüm Bakiye (Net Varlık)</div>
             <div class="invest-pf-val" id="invTotalWealthVal" style="color:var(--pri)">0,00 ₺</div>
-            <div class="invest-pf-sub" style="font-size:11.5px;color:var(--txt3);margin-top:2px">Yatırım + Nakit</div>
+            <div class="invest-pf-sub" id="invCashValSub" style="font-size:11.5px;color:var(--txt3);margin-top:2px">Nakit: <span id="invCashVal">0,00 ₺</span></div>
           </div>
         </div>
       </div>
@@ -2660,16 +2667,61 @@ function getAllAssetsList() {
 const ALL_ASSETS = getAllAssetsList();
 const BIST_STOCKS = ALL_ASSETS;
 
+function getItemQty(item) {
+  if (!item) return 0;
+  const q = item.quantity !== undefined ? item.quantity : (item.qty !== undefined ? item.qty : item.lots);
+  const n = Number(q);
+  return (isNaN(n) || !isFinite(n) || n < 0) ? 0 : n;
+}
+
+function getItemBuyPrice(item) {
+  if (!item) return 0;
+  const p = item.buyPrice !== undefined ? item.buyPrice : item.buy_price;
+  const n = Number(p);
+  return (isNaN(n) || !isFinite(n) || n < 0) ? 0 : n;
+}
+
+function getItemCurPrice(item) {
+  if (!item) return 0;
+  const cp = item.currentPrice !== undefined ? item.currentPrice : (item.price !== undefined ? item.price : item.buyPrice);
+  const n = Number(cp);
+  return (isNaN(n) || !isFinite(n) || n <= 0) ? getItemBuyPrice(item) : n;
+}
+
+function normalizeInvestItem(item) {
+  if (!item || typeof item !== 'object') return null;
+  const q = getItemQty(item);
+  const bp = getItemBuyPrice(item);
+  const cp = getItemCurPrice(item);
+  item.qty = q;
+  item.quantity = q;
+  item.lots = q;
+  item.buyPrice = bp;
+  item.buy_price = bp;
+  item.currentPrice = cp;
+  item.price = cp;
+  item.changePct = Number(item.changePct) || 0;
+  item.symbol = (item.symbol || '').toUpperCase().trim();
+  item.name = item.name || item.symbol || '';
+  return item;
+}
+
 function loadInvest() {
   const key = getUserScopedKey(SIK);
   try {
     let raw = localStorage.getItem(key);
-    investData = JSON.parse(raw) || [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      investData = parsed.map(normalizeInvestItem).filter(Boolean);
+    } else {
+      investData = [];
+    }
   } catch(e) { investData = []; }
   renderInvest();
 }
 
 function saveInvest() {
+  investData = (investData || []).map(normalizeInvestItem).filter(Boolean);
   localStorage.setItem(getUserScopedKey(SIK), JSON.stringify(investData));
   renderInvest();
   const activeUser = localStorage.getItem(AUTH_KEY);
@@ -2784,8 +2836,10 @@ async function fetchQuote(symbol) {
 }
 
 async function refreshInvestPrices(silent = false) {
-  if (!investData.length) {
-    if (!silent) toast('Portföyünüzde henüz hisse veya varlık bulunmuyor.', 'ok');
+  const activeItems = (investData || []).map(normalizeInvestItem).filter(i => i && getItemQty(i) > 0);
+  if (!activeItems.length) {
+    if (!silent) toast('Portföyünüzde henüz aktif varlık bulunmuyor.', 'ok');
+    updateInvestSummary(0, 0);
     return;
   }
   const btn = document.getElementById('btnRefreshPrices');
@@ -2795,7 +2849,7 @@ async function refreshInvestPrices(silent = false) {
   let updatedCount = 0;
 
   try {
-    const syms = investData.map(i => i.symbol).join(',');
+    const syms = [...new Set(activeItems.map(i => i.symbol))].join(',');
     const batchRes = await fetch(`/api/quotes?symbols=${encodeURIComponent(syms)}&_t=${Date.now()}`, {
       cache: 'no-store',
       headers: {
@@ -2806,11 +2860,14 @@ async function refreshInvestPrices(silent = false) {
     if (batchRes.ok) {
       const batchData = await batchRes.json();
       for (const item of investData) {
+        if (!item || !item.symbol) continue;
         const cleanSym = item.symbol.replace('.IS', '').replace('BIST:', '').trim();
         const q = batchData[cleanSym] || batchData[item.symbol];
-        if (q && q.price > 0) {
-          item.currentPrice = q.price;
-          item.changePct = q.changePct || 0;
+        if (q && Number(q.price) > 0) {
+          const np = Number(q.price);
+          item.currentPrice = np;
+          item.price = np;
+          item.changePct = Number(q.changePct) || 0;
           item.lastUpdated = Date.now();
           updatedCount++;
         }
@@ -2818,12 +2875,14 @@ async function refreshInvestPrices(silent = false) {
     }
   } catch(e) {}
 
-  for (const item of investData) {
+  for (const item of activeItems) {
     if (!item.lastUpdated || (Date.now() - item.lastUpdated > 4000)) {
       const q = await fetchQuote(item.symbol);
-      if (q && q.price > 0) {
-        item.currentPrice = q.price;
-        item.changePct = q.changePct || 0;
+      if (q && Number(q.price) > 0) {
+        const np = Number(q.price);
+        item.currentPrice = np;
+        item.price = np;
+        item.changePct = Number(q.changePct) || 0;
         item.lastUpdated = Date.now();
         updatedCount++;
       }
@@ -2854,7 +2913,11 @@ function renderInvest() {
   const emptyEl = document.getElementById('investEmpty');
   if (!listEl) return;
 
-  if (!investData.length) {
+  const activeInvestments = (investData || []).map(normalizeInvestItem).filter(item => {
+    return item && getItemQty(item) > 0;
+  });
+
+  if (!activeInvestments.length) {
     listEl.innerHTML = '';
     if (emptyEl) emptyEl.style.display = 'block';
     updateInvestSummary(0, 0);
@@ -2865,20 +2928,23 @@ function renderInvest() {
   let totalCost = 0;
   let totalValue = 0;
 
-  listEl.innerHTML = investData.map(item => {
-    const curPrice = item.currentPrice || item.buyPrice;
-    const cost = item.qty * item.buyPrice;
-    const value = item.qty * curPrice;
+  listEl.innerHTML = activeInvestments.map(item => {
+    const qty = getItemQty(item);
+    const buyPrice = getItemBuyPrice(item);
+    const curPrice = getItemCurPrice(item);
+
+    const cost = qty * buyPrice;
+    const value = qty * curPrice;
     const pnl = value - cost;
     const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
 
-    totalCost += cost;
-    totalValue += value;
+    totalCost += (isNaN(cost) || !isFinite(cost)) ? 0 : cost;
+    totalValue += (isNaN(value) || !isFinite(value)) ? 0 : value;
 
     const isProfit = pnl >= 0;
     const pnlColor = isProfit ? 'var(--income)' : 'var(--expense)';
     const pnlSign = isProfit ? '+' : '';
-    const isGold = item.symbol.includes('ALTIN') || item.symbol.includes('GRAM');
+    const isGold = (item.symbol || '').includes('ALTIN') || (item.symbol || '').includes('GRAM');
     const badgeIco = isGold ? '🥇' : '🏛️';
 
     return `
@@ -2894,12 +2960,12 @@ function renderInvest() {
         <div class="inv-col-data">
           <div class="inv-metric">
             <span class="inv-metric-lbl">Adet / Lot</span>
-            <span class="inv-metric-val">${item.qty}</span>
+            <span class="inv-metric-val">${qty}</span>
           </div>
 
           <div class="inv-metric">
             <span class="inv-metric-lbl">Alış Maliyeti</span>
-            <span class="inv-metric-val">${fmt(item.buyPrice)} ₺</span>
+            <span class="inv-metric-val">${fmt(buyPrice)} ₺</span>
           </div>
 
           <div class="inv-metric">
@@ -2936,22 +3002,30 @@ function renderInvest() {
 }
 
 function getCashBalance() {
-  const totalIn  = financeData.filter(isActualIncome).reduce((s,t)=>s+t.amount,0);
-  const totalEx  = financeData.filter(t=>t.type==='gider').reduce((s,t)=>s+t.amount,0);
-  const totalNetAdd = financeData.filter(t=>t.type==='gelir_net' || (t.desc && t.desc.includes('[Hisse Satışı - Nakite Çevrildi]'))).reduce((s,t)=>s+t.amount,0);
-  return (totalIn + totalNetAdd) - totalEx;
+  const totalIn  = (financeData || []).filter(isActualIncome).reduce((s,t)=> s + (Number(t.amount) || 0), 0);
+  const totalEx  = (financeData || []).filter(t=>t.type==='gider').reduce((s,t)=> s + (Number(t.amount) || 0), 0);
+  const totalNetAdd = (financeData || []).filter(t=>t.type==='gelir_net' || (t.desc && t.desc.includes('[Hisse Satışı - Nakite Çevrildi]'))).reduce((s,t)=> s + (Number(t.amount) || 0), 0);
+  const bal = (totalIn + totalNetAdd) - totalEx;
+  return (isNaN(bal) || !isFinite(bal)) ? 0 : bal;
 }
 
 function getInvestTotalValue() {
-  if (!investData || !investData.length) return 0;
+  if (!investData || !Array.isArray(investData) || !investData.length) return 0;
   return investData.reduce((sum, item) => {
-    const curPrice = item.currentPrice || item.buyPrice || 0;
-    return sum + ((item.qty || 0) * curPrice);
+    if (!item) return sum;
+    const qty = getItemQty(item);
+    if (qty <= 0) return sum;
+    const curPrice = getItemCurPrice(item);
+    const val = qty * curPrice;
+    return sum + ((isNaN(val) || !isFinite(val)) ? 0 : val);
   }, 0);
 }
 
 function getTotalWealth() {
-  return getCashBalance() + getInvestTotalValue();
+  const cash = getCashBalance();
+  const inv = getInvestTotalValue();
+  const total = cash + inv;
+  return (isNaN(total) || !isFinite(total)) ? 0 : total;
 }
 
 function updateHomeSummary() {
@@ -2969,30 +3043,52 @@ function updateHomeSummary() {
 }
 
 function updateInvestSummary(totalCost, totalValue) {
+  const safeCost = (isNaN(totalCost) || !isFinite(totalCost) || totalCost < 0) ? 0 : totalCost;
+  const safeValue = (isNaN(totalValue) || !isFinite(totalValue) || totalValue < 0) ? 0 : totalValue;
+  const pnl = safeValue - safeCost;
+  const pnlPct = safeCost > 0 ? (pnl / safeCost) * 100 : 0;
+  const isPos = pnl >= 0;
+
   const costEl  = document.getElementById('invTotalCost');
+  const costCardEl = document.getElementById('invTotalCostCard');
   const valEl   = document.getElementById('invTotalVal');
+  const valHdrEl = document.getElementById('invTotalValHeader');
   const pnlEl   = document.getElementById('invTotalPnl');
+  const pnlValEl = document.getElementById('invTotalPnlVal');
+  const pnlHdrEl = document.getElementById('invTotalPnlHeader');
   const countEl = document.getElementById('invTotalCount');
 
-  if (costEl) costEl.textContent = fmt(totalCost) + ' ₺';
-  if (valEl)  valEl.textContent  = fmt(totalValue) + ' ₺';
-  if (countEl) countEl.textContent = investData.length;
+  const activeCount = (investData || []).filter(i => getItemQty(i) > 0).length;
+
+  if (costEl) costEl.textContent = fmt(safeCost) + ' ₺';
+  if (costCardEl) costCardEl.textContent = fmt(safeCost) + ' ₺';
+  if (valEl)  valEl.textContent  = fmt(safeValue) + ' ₺';
+  if (valHdrEl) valHdrEl.textContent = fmt(safeValue) + ' ₺';
+  if (countEl) countEl.textContent = activeCount;
+
+  if (pnlValEl) {
+    pnlValEl.textContent = `${isPos ? '+' : ''}${fmt(pnl)} ₺`;
+    pnlValEl.style.color = isPos ? 'var(--income)' : 'var(--expense)';
+  }
+
+  if (pnlHdrEl) {
+    pnlHdrEl.textContent = `${isPos ? '+' : ''}${fmt(pnl)} ₺ (%${pnlPct.toFixed(2)})`;
+    pnlHdrEl.style.color = isPos ? 'var(--income)' : 'var(--expense)';
+  }
 
   if (pnlEl) {
-    const pnl = totalValue - totalCost;
-    const pnlPct = totalCost > 0 ? (pnl / totalCost) * 100 : 0;
-    const isPos = pnl >= 0;
     pnlEl.textContent = `${isPos?'+':''}${fmt(pnl)} ₺ (${isPos?'+':''}%${pnlPct.toFixed(2)})`;
     pnlEl.className = 'invest-pf-change ' + (isPos ? 'pos' : 'neg');
   }
 
   const cashBal = getCashBalance();
-  const totalWealth = totalValue + cashBal;
+  const safeCash = (isNaN(cashBal) || !isFinite(cashBal)) ? 0 : cashBal;
+  const totalWealth = safeValue + safeCash;
 
   const cashEl = document.getElementById('invCashVal');
   if (cashEl) {
-    cashEl.textContent = `${cashBal >= 0 ? '' : '-'}${fmt(Math.abs(cashBal))} ₺`;
-    cashEl.style.color = cashBal >= 0 ? 'var(--income)' : 'var(--expense)';
+    cashEl.textContent = `${safeCash >= 0 ? '' : '-'}${fmt(Math.abs(safeCash))} ₺`;
+    cashEl.style.color = safeCash >= 0 ? 'var(--income)' : 'var(--expense)';
   }
 
   const wealthEl = document.getElementById('invTotalWealthVal');
@@ -3180,20 +3276,21 @@ function renderInvestTrades() {
 
 function openQuickSellModal() {
   loadInvest();
-  if (!investData || !investData.length) {
+  const activeItems = (investData || []).filter(i => getItemQty(i) > 0);
+  if (!activeItems.length) {
     toast('Portföyünüzde henüz satılabilecek hisse veya varlık bulunmuyor. Önce alım yapın.', 'err');
     return;
   }
-  if (investData.length === 1) {
-    openSellInvest(investData[0].id);
+  if (activeItems.length === 1) {
+    openSellInvest(activeItems[0].id);
     return;
   }
-  const options = investData.map((item, idx) => `${idx + 1}. ${item.symbol} (${item.qty} adet)`).join('\n');
+  const options = activeItems.map((item, idx) => `${idx + 1}. ${item.symbol} (${getItemQty(item)} adet)`).join('\n');
   const sel = prompt(`Satmak istediğiniz varlığın numarasını seçin:\n${options}`);
   if (!sel) return;
   const idx = parseInt(sel.trim(), 10) - 1;
-  if (!isNaN(idx) && investData[idx]) {
-    openSellInvest(investData[idx].id);
+  if (!isNaN(idx) && activeItems[idx]) {
+    openSellInvest(activeItems[idx].id);
   } else {
     toast('Geçersiz seçim.', 'err');
   }
@@ -3201,7 +3298,7 @@ function openQuickSellModal() {
 
 function openQuickDividendModal() {
   loadInvest();
-  const stocks = investData.filter(i => !i.symbol.includes('ALTIN') && !i.symbol.includes('GRAM'));
+  const stocks = (investData || []).filter(i => getItemQty(i) > 0 && !i.symbol.includes('ALTIN') && !i.symbol.includes('GRAM'));
   if (!stocks.length) {
     const sym = prompt('Temettü aldığınız hisse kodunu girin (örn. THYAO):');
     if (!sym) return;
@@ -3389,17 +3486,22 @@ function submitAddInvest(e) {
 
   const totalCost = qty * buyPrice;
 
-  const newItem = {
+  const newItem = normalizeInvestItem({
     id: uid(),
     symbol,
     name,
     qty,
+    quantity: qty,
+    lots: qty,
     buyPrice,
+    buy_price: buyPrice,
     currentPrice: buyPrice,
+    price: buyPrice,
     changePct: 0,
     buyDate: date,
+    date: date,
     createdAt: Date.now()
-  };
+  });
   investData.unshift(newItem);
   saveInvest();
   recordInvestTrade({
@@ -3407,35 +3509,47 @@ function submitAddInvest(e) {
     name,
     type: 'alis',
     qty,
+    quantity: qty,
     price: buyPrice,
     total: totalCost,
     date
   });
   closeAddInvest();
+  updateHomeSummary();
 
   toast(`✓ ${symbol} portföye eklendi! (${fmt(totalCost)} ₺ hisse bakiyesi olarak tutulur, nakit gider sayılmaz)`, 'ok');
 
   fetchQuote(symbol).then(q => {
-    if (q && q.price > 0) {
-      newItem.currentPrice = q.price;
-      newItem.changePct = q.changePct || 0;
+    if (q && Number(q.price) > 0) {
+      const np = Number(q.price);
+      const target = (investData || []).find(i => i.id === newItem.id) || newItem;
+      target.currentPrice = np;
+      target.price = np;
+      target.changePct = Number(q.changePct) || 0;
+      target.lastUpdated = Date.now();
       saveInvest();
+      updateHomeSummary();
     }
   });
 }
 
 function openSellInvest(id) {
-  const item = investData.find(i => i.id === id);
+  const item = (investData || []).find(i => i.id === id);
   if (!item) return;
 
+  const currentQty = getItemQty(item);
+  if (currentQty <= 0) {
+    toast('Bu varlığın adedi 0 olduğu için satış yapılamaz.', 'err');
+    return;
+  }
   document.getElementById('sellItemId').value = item.id;
   document.getElementById('sellItemSym').textContent = item.symbol;
-  document.getElementById('sellItemName').textContent = item.name;
-  document.getElementById('sellItemMaxQty').textContent = `${item.qty} Adet`;
-  document.getElementById('sellQty').value = item.qty;
-  document.getElementById('sellQty').max = item.qty;
+  document.getElementById('sellItemName').textContent = item.name || item.symbol;
+  document.getElementById('sellItemMaxQty').textContent = `${currentQty} Adet`;
+  document.getElementById('sellQty').value = currentQty;
+  document.getElementById('sellQty').max = currentQty;
   
-  const curPrice = item.currentPrice || item.buyPrice;
+  const curPrice = getItemCurPrice(item);
   document.getElementById('sellPrice').value = curPrice.toFixed(2);
   
   calcSellTotal();
@@ -3448,34 +3562,39 @@ function closeSellInvest() {
 
 function calcSellTotal() {
   const itemId = document.getElementById('sellItemId').value;
-  const item = investData.find(i => i.id === itemId);
+  const item = (investData || []).find(i => i.id === itemId);
   if (!item) return;
 
   const qty = parseFloat(document.getElementById('sellQty').value) || 0;
   const price = parseFloat(document.getElementById('sellPrice').value) || 0;
+  const buyPrice = getItemBuyPrice(item);
   const total = qty * price;
-  const cost = qty * item.buyPrice;
+  const cost = qty * buyPrice;
   const pnl = total - cost;
 
   document.getElementById('sellTotalDisplay').textContent = fmt(total) + ' ₺';
   
   const pnlEl = document.getElementById('sellPnlDisplay');
-  const isPos = pnl >= 0;
-  pnlEl.textContent = `${isPos?'+':''}${fmt(pnl)} ₺`;
-  pnlEl.style.color = isPos ? 'var(--income)' : 'var(--expense)';
+  if (pnlEl) {
+    const isPos = pnl >= 0;
+    pnlEl.textContent = `${isPos?'+':''}${fmt(pnl)} ₺`;
+    pnlEl.style.color = isPos ? 'var(--income)' : 'var(--expense)';
+  }
 }
 
 function submitSellInvest(e) {
   e.preventDefault();
   const itemId = document.getElementById('sellItemId').value;
-  const item = investData.find(i => i.id === itemId);
+  const item = (investData || []).find(i => i.id === itemId);
   if (!item) return;
 
-  const sellQty = parseFloat(document.getElementById('sellQty').value);
-  const sellPrice = parseFloat(document.getElementById('sellPrice').value);
+  const currentQty = getItemQty(item);
+  const sellQty = parseFloat(document.getElementById('sellQty').value) || 0;
+  const sellPrice = parseFloat(document.getElementById('sellPrice').value) || 0;
+  const buyPrice = getItemBuyPrice(item);
 
-  if (!sellQty || sellQty <= 0 || sellQty > item.qty) {
-    toast(`Geçerli bir satış adedi girin (Maks: ${item.qty}).`, 'err');
+  if (!sellQty || sellQty <= 0 || sellQty > currentQty) {
+    toast(`Geçerli bir satış adedi girin (Maks: ${currentQty}).`, 'err');
     return;
   }
   if (!sellPrice || sellPrice <= 0) {
@@ -3484,20 +3603,27 @@ function submitSellInvest(e) {
   }
 
   const totalSale = sellQty * sellPrice;
-  const cost = sellQty * item.buyPrice;
+  const cost = sellQty * buyPrice;
   const profit = totalSale - cost;
 
-  if (sellQty >= item.qty) {
-    investData = investData.filter(i => i.id !== itemId);
+  if (sellQty >= currentQty) {
+    item.qty = 0;
+    item.quantity = 0;
+    item.lots = 0;
   } else {
-    item.qty = Math.round((item.qty - sellQty) * 1000) / 1000;
+    const remaining = Math.round((currentQty - sellQty) * 10000) / 10000;
+    item.qty = remaining;
+    item.quantity = remaining;
+    item.lots = remaining;
   }
+  item.updatedAt = Date.now();
   saveInvest();
   recordInvestTrade({
     symbol: item.symbol,
-    name: item.name,
+    name: item.name || item.symbol,
     type: 'satis',
     qty: sellQty,
+    quantity: sellQty,
     price: sellPrice,
     total: totalSale,
     profit: profit,
@@ -3508,7 +3634,6 @@ function submitSellInvest(e) {
   closeSellInvest();
 
   if (convertToCash) {
-
     loadFinance();
     financeData.push({
       id: uid(),
@@ -3529,7 +3654,7 @@ function submitSellInvest(e) {
   } else {
     renderInvest();
     updateHomeSummary();
-    toast(`✓ ${sellQty} adet ${item.symbol} satıldı. Tutar (${fmt(totalSale)} ₺) hisse portföy bakiyesinde tutuldu.`, 'ok');
+    toast(`✓ ${sellQty} adet ${item.symbol} satıldı. (${fmt(totalSale)} ₺)`, 'ok');
   }
 }
 
@@ -7716,12 +7841,16 @@ async function sbPullUserData(username) {
     }
 
     if (invRes.data && invRes.data.length > 0) {
-      investData = invRes.data.map(d => ({
+      investData = invRes.data.map(d => normalizeInvestItem({
         id: d.id,
         symbol: d.symbol,
         type: d.type,
-        lots: Number(d.lots),
-        buyPrice: Number(d.buy_price),
+        qty: Number(d.lots || 0),
+        quantity: Number(d.lots || 0),
+        lots: Number(d.lots || 0),
+        buyPrice: Number(d.buy_price || 0),
+        buy_price: Number(d.buy_price || 0),
+        currentPrice: Number(d.buy_price || 0),
         date: d.date
       }));
       localStorage.setItem(getUserScopedKey(SIK), JSON.stringify(investData));
@@ -7805,15 +7934,19 @@ async function sbPushExistingInvest(username) {
   const sb = await initSupabase();
   if (!sb || !investData || !investData.length) return;
   const dbUser = getDbUsername(username);
-  const rows = investData.map(i => ({
-    id: String(i.id),
-    username: dbUser,
-    symbol: i.symbol || '',
-    type: i.type || 'hisse',
-    lots: Number(i.lots || 0),
-    buy_price: Number(i.buyPrice || 0),
-    date: i.date || new Date().toISOString().split('T')[0]
-  }));
+  const rows = investData.map(i => {
+    const q = getItemQty(i);
+    const bp = getItemBuyPrice(i);
+    return {
+      id: String(i.id),
+      username: dbUser,
+      symbol: i.symbol || '',
+      type: i.type || 'hisse',
+      lots: Number(q),
+      buy_price: Number(bp),
+      date: i.date || i.buyDate || new Date().toISOString().split('T')[0]
+    };
+  });
   try { await sb.from('mt_investments').upsert(rows); } catch(e) {}
 }
 

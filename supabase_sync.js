@@ -91,8 +91,12 @@ async function sbPullUserData(username) {
         id: d.id,
         symbol: d.symbol,
         type: d.type,
-        lots: Number(d.lots),
-        buyPrice: Number(d.buy_price),
+        qty: Number(d.lots || 0),
+        quantity: Number(d.lots || 0),
+        lots: Number(d.lots || 0),
+        buyPrice: Number(d.buy_price || 0),
+        buy_price: Number(d.buy_price || 0),
+        currentPrice: Number(d.buy_price || 0),
         date: d.date
       }));
       saveInvest();
@@ -167,15 +171,19 @@ async function sbPushExistingFinance(username) {
 async function sbPushExistingInvest(username) {
   const sb = await initSupabase();
   if (!sb || !investData || !investData.length) return;
-  const rows = investData.map(i => ({
-    id: String(i.id),
-    username: username.toLowerCase(),
-    symbol: i.symbol || '',
-    type: i.type || 'hisse',
-    lots: Number(i.lots || 0),
-    buy_price: Number(i.buyPrice || 0),
-    date: i.date || new Date().toISOString().split('T')[0]
-  }));
+  const rows = investData.map(i => {
+    const qty = Number(typeof getItemQty === 'function' ? getItemQty(i) : (i.quantity !== undefined ? i.quantity : (i.qty !== undefined ? i.qty : i.lots))) || 0;
+    const buyPrice = Number(typeof getItemBuyPrice === 'function' ? getItemBuyPrice(i) : (i.buyPrice !== undefined ? i.buyPrice : i.buy_price)) || 0;
+    return {
+      id: String(i.id),
+      username: username.toLowerCase(),
+      symbol: i.symbol || '',
+      type: i.type || 'hisse',
+      lots: qty,
+      buy_price: buyPrice,
+      date: i.date || new Date().toISOString().split('T')[0]
+    };
+  });
   try { await sb.from('mt_investments').upsert(rows); } catch(e) {}
 }
 
@@ -247,13 +255,15 @@ async function sbAddInvestItem(item, username) {
   const sb = await initSupabase();
   if (!sb || !username) return;
   try {
+    const qty = Number(typeof getItemQty === 'function' ? getItemQty(item) : (item.quantity !== undefined ? item.quantity : (item.qty !== undefined ? item.qty : item.lots))) || 0;
+    const buyPrice = Number(typeof getItemBuyPrice === 'function' ? getItemBuyPrice(item) : (item.buyPrice !== undefined ? item.buyPrice : item.buy_price)) || 0;
     await sb.from('mt_investments').upsert([{
       id: String(item.id),
       username: username.toLowerCase(),
       symbol: item.symbol,
       type: item.type || 'hisse',
-      lots: Number(item.lots),
-      buy_price: Number(item.buyPrice),
+      lots: qty,
+      buy_price: buyPrice,
       date: item.date
     }]);
   } catch(e) {}
