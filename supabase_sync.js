@@ -351,6 +351,7 @@ async function sbRecordAuditLog(username, status, message) {
 async function sbSyncUserToCloud(user) {
   const sb = await initSupabase();
   if (!sb || !user || !user.username) return;
+  const isAdm = Boolean(user.isAdmin || user.is_admin || user.role === 'admin' || user.username.toLowerCase() === 'admin');
   try {
     await sb.from('mt_users').upsert([{
       username: user.username.toLowerCase(),
@@ -358,7 +359,8 @@ async function sbSyncUserToCloud(user) {
       sec_q: user.secQ || '',
       sec_a_hash: user.secAHash || '',
       recovery_key_hash: user.recoveryKeyHash || '',
-      role: user.username.toLowerCase() === 'admin' ? 'admin' : (user.role || 'user')
+      role: isAdm ? 'admin' : (user.role || 'user'),
+      is_admin: isAdm
     }], { onConflict: 'username' });
   } catch(e) {}
 }
@@ -374,15 +376,21 @@ async function sbFetchUsersFromCloud() {
         const isLocalUser = (u.username || '').toLowerCase().startsWith('local_');
         return isLoc ? isLocalUser : !isLocalUser;
       });
-      return filtered.map(u => ({
-        username: u.username,
-        pinHash: u.pin_hash,
-        secQ: u.sec_q,
-        secAHash: u.sec_a_hash,
-        recoveryKeyHash: u.recovery_key_hash,
-        role: u.role,
-        createdAt: u.created_at ? new Date(u.created_at).getTime() : Date.now()
-      }));
+      return filtered.map(u => {
+        const isAdm = Boolean(u.is_admin || u.role === 'admin' || (u.username && u.username.toLowerCase() === 'admin'));
+        return {
+          username: u.username,
+          pinHash: u.pin_hash,
+          secQ: u.sec_q,
+          secAHash: u.sec_a_hash,
+          recoveryKeyHash: u.recovery_key_hash,
+          role: isAdm ? 'admin' : (u.role || 'user'),
+          isAdmin: isAdm,
+          is_admin: isAdm,
+          email: u.email || '',
+          createdAt: u.created_at ? new Date(u.created_at).getTime() : Date.now()
+        };
+      });
     }
   } catch(e) {}
   return null;

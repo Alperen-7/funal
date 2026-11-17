@@ -2,7 +2,19 @@ import os
 import sys
 import json
 import logging
+import warnings
 from datetime import datetime, timezone
+
+# macOS LibreSSL / urllib3 uyarılarını bastır
+warnings.filterwarnings('ignore', message='.*urllib3 v2 only supports OpenSSL.*')
+warnings.filterwarnings('ignore', category=UserWarning)
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import admin_logger
+except ImportError:
+    admin_logger = None
+
 try:
     import requests
 except ImportError:
@@ -25,6 +37,27 @@ VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '')
 VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '')
 VAPID_CLAIMS_SUB = os.environ.get('VAPID_CLAIMS_SUB', 'mailto:admin@mytakip.local')
 APP_URL = os.environ.get('APP_URL', 'https://alperen-7.github.io/funal')
+
+def is_admin_user(username):
+    if not username:
+        return False
+    u = str(username).strip().lower()
+    if u == 'admin':
+        return True
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return False
+    url = f"{SUPABASE_URL}/rest/v1/mt_users"
+    params = {'username': f'eq.{u}', 'select': 'is_admin,role,username'}
+    try:
+        data = api_get(url, params=params)
+        if data and len(data) > 0:
+            row = data[0]
+            is_adm = row.get('is_admin')
+            role = str(row.get('role') or '').lower()
+            return bool(is_adm) or (role == 'admin')
+    except Exception as exc:
+        logger.warning(f"Admin kontrolü sorgusu hatası ({username}): {exc}")
+    return False
 
 try:
     import resend
@@ -100,6 +133,8 @@ def get_due_unpaid_bills():
         raw_bills = api_get(url, params=params)
     except Exception as exc:
         logger.error(f'mt_bills tablosu sorgulanırken hata: {exc}')
+        if admin_logger:
+            admin_logger.log_critical("DB_CONNECTION_LOST", f"mt_bills sorgusu başarısız, veritabanı bağlantısı koptu: {exc}", exc=exc)
         return []
 
     due_bills = []
@@ -144,7 +179,13 @@ def get_user_push_subscriptions(username):
     try:
         return api_get(url, params=params)
     except Exception as exc:
-        logger.warning(f'Web Push abonelik sorgusu hatası ({username}): {exc}')
+        err_str = str(exc)
+        if '404' in err_str or 'Not Found' in err_str:
+            logger.info("ℹ️ mt_push_subscriptions tablosu veritabanında henüz oluşturulmamış (404 Not Found).")
+        else:
+            logger.warning(f'Web Push abonelik sorgusu hatası ({username}): {exc}')
+            if admin_logger:
+                admin_logger.log_warning("PUSH_SUBSCRIPTION_QUERY_ERROR", str(exc), exc=exc)
     return []
 
 
@@ -333,6 +374,12 @@ def run_reminders():
         title = bill.get('title') or bill.get('name')
         processed += 1
 
+        if is_admin_user(username):
+            logger.info(f"🚫 Admin kullanıcısı ({username}) için standart fatura hatırlatması filtrelendi/engellendi (Fatura: {title}).")
+            mark_bill_as_notified(bill_id)
+            notified += 1
+            continue
+
         logger.info(f"İşleniyor [{processed}/{len(bills)}]: {title} (Kullanıcı: {username})")
 
         push_sent = False
@@ -379,9 +426,11 @@ def run_dry_run():
         title = b.get('title') or b.get('name') or 'İsimsiz'
         amt = format_currency(b.get('amount', 0))
         uname = b.get('username', 'belirsiz')
+        is_adm = is_admin_user(uname)
+        adm_tag = " [ADMIN - Standart bildirimlerden muaf/filtrelendi]" if is_adm else ""
         email = b.get('email') or get_user_email(uname)
         subs = get_user_push_subscriptions(uname)
-        logger.info(f"  [{i}] {title} - {amt} | Kullanıcı: {uname} | E-posta: {email or 'Kayıtlı değil'} | Push Abonelikleri: {len(subs)} cihaz")
+        logger.info(f"  [{i}] {title} - {amt} | Kullanıcı: {uname}{adm_tag} | E-posta: {email or 'Kayıtlı değil'} | Push Abonelikleri: {len(subs)} cihaz")
     logger.info("=== Simülasyon tamamlandı. ===")
 
 

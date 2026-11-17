@@ -11,6 +11,14 @@ import os
 import re
 import portfolio_engine
 
+try:
+    import scripts.admin_logger as admin_logger
+except ImportError:
+    try:
+        import admin_logger
+    except ImportError:
+        admin_logger = None
+
 PORT = int(os.environ.get('PORT', 8765))
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 
@@ -32,55 +40,60 @@ class MyTakipHandler(SimpleHTTPRequestHandler):
         return f"http://localhost:{PORT}"
 
     def do_GET(self):
-        parsed = urllib.parse.urlparse(self.path)
-        clean_path = parsed.path
+        try:
+            parsed = urllib.parse.urlparse(self.path)
+            clean_path = parsed.path
 
-        if clean_path == '/api/quotes':
-            params = urllib.parse.parse_qs(parsed.query)
-            symbols_str = params.get('symbols', [''])[0].strip().upper()
-            if not symbols_str:
-                self.send_json({'error': 'symbols parametresi gereklidir'}, status=400)
-                return
-            raw_symbols = [s.strip() for s in symbols_str.split(',') if s.strip()]
-            if len(raw_symbols) > 50:
-                self.send_json({'error': 'En fazla 50 sembol sorgulanabilir'}, status=400)
-                return
-            symbols = [s for s in raw_symbols if SYMBOL_REGEX.match(s)]
-            if not symbols:
-                self.send_json({'error': 'Geçerli sembol bulunamadı. Yalnızca standart borsa sembolleri kabul edilir.'}, status=400)
-                return
-            force_refresh = bool(params.get('_t'))
-            data = self.fetch_batch_quotes(symbols, force_refresh=force_refresh)
-            self.send_json(data)
-            return
-
-        if clean_path == '/api/quote':
-            params = urllib.parse.parse_qs(parsed.query)
-            symbol = params.get('symbol', [''])[0].strip().upper()
-
-            if not symbol or not SYMBOL_REGEX.match(symbol):
-                self.send_json({'error': 'Geçersiz veya eksik sembol parametresi. Yalnızca standart borsa sembolleri kabul edilir.'}, status=400)
-                return
-
-            force_refresh = bool(params.get('_t'))
-            data = self.fetch_market_data(symbol, force_refresh=force_refresh)
-            self.send_json(data)
-            return
-
-        if self.path.startswith('/api/stocks'):
-            stocks_file = os.path.join(DIRECTORY, 'bist_stocks.json')
-            if os.path.exists(stocks_file):
-                try:
-                    with open(stocks_file, 'r', encoding='utf-8') as f:
-                        stocks = json.load(f)
-                    self.send_json(stocks)
+            if clean_path == '/api/quotes':
+                params = urllib.parse.parse_qs(parsed.query)
+                symbols_str = params.get('symbols', [''])[0].strip().upper()
+                if not symbols_str:
+                    self.send_json({'error': 'symbols parametresi gereklidir'}, status=400)
                     return
-                except Exception:
-                    pass
-            self.send_json([])
-            return
+                raw_symbols = [s.strip() for s in symbols_str.split(',') if s.strip()]
+                if len(raw_symbols) > 50:
+                    self.send_json({'error': 'En fazla 50 sembol sorgulanabilir'}, status=400)
+                    return
+                symbols = [s for s in raw_symbols if SYMBOL_REGEX.match(s)]
+                if not symbols:
+                    self.send_json({'error': 'Geçerli sembol bulunamadı. Yalnızca standart borsa sembolleri kabul edilir.'}, status=400)
+                    return
+                force_refresh = bool(params.get('_t'))
+                data = self.fetch_batch_quotes(symbols, force_refresh=force_refresh)
+                self.send_json(data)
+                return
 
-        return super().do_GET()
+            if clean_path == '/api/quote':
+                params = urllib.parse.parse_qs(parsed.query)
+                symbol = params.get('symbol', [''])[0].strip().upper()
+
+                if not symbol or not SYMBOL_REGEX.match(symbol):
+                    self.send_json({'error': 'Geçersiz veya eksik sembol parametresi. Yalnızca standart borsa sembolleri kabul edilir.'}, status=400)
+                    return
+
+                force_refresh = bool(params.get('_t'))
+                data = self.fetch_market_data(symbol, force_refresh=force_refresh)
+                self.send_json(data)
+                return
+
+            if self.path.startswith('/api/stocks'):
+                stocks_file = os.path.join(DIRECTORY, 'bist_stocks.json')
+                if os.path.exists(stocks_file):
+                    try:
+                        with open(stocks_file, 'r', encoding='utf-8') as f:
+                            stocks = json.load(f)
+                        self.send_json(stocks)
+                        return
+                    except Exception:
+                        pass
+                self.send_json([])
+                return
+
+            return super().do_GET()
+        except Exception as e:
+            if admin_logger:
+                admin_logger.log_critical("INTERNAL_SERVER_ERROR_500", f"İşlenemeyen 500 sunucu hatası: {e}", exc=e)
+            self.send_json({'error': 'Internal Server Error', 'detail': str(e)}, status=500)
 
     def do_OPTIONS(self):
         self.send_response(200)

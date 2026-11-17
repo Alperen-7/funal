@@ -112,7 +112,26 @@ ALTER TABLE public.mt_bills ADD COLUMN IF NOT EXISTS due_date DATE;
 ALTER TABLE public.mt_bills ADD COLUMN IF NOT EXISTS is_notified BOOLEAN DEFAULT FALSE;
 ALTER TABLE public.mt_bills ADD COLUMN IF NOT EXISTS notified_at TIMESTAMPTZ;
 ALTER TABLE public.mt_users ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE public.mt_users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.mt_users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user';
+UPDATE public.mt_users SET is_admin = TRUE, role = 'admin' WHERE LOWER(username) = 'admin';
 
 ALTER TABLE public.mt_push_subscriptions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "mt_push_subscriptions_all" ON public.mt_push_subscriptions FOR ALL USING (true) WITH CHECK (true);
 CREATE INDEX IF NOT EXISTS idx_push_user ON public.mt_push_subscriptions(username);
+
+CREATE TABLE IF NOT EXISTS public.mt_error_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    level TEXT NOT NULL,
+    category TEXT NOT NULL,
+    message TEXT NOT NULL,
+    details JSONB DEFAULT '{}'::jsonb,
+    is_notified BOOLEAN DEFAULT FALSE,
+    notified_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.mt_error_logs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "mt_error_logs_all" ON public.mt_error_logs FOR ALL USING (true) WITH CHECK (true);
+CREATE INDEX IF NOT EXISTS idx_error_logs_created ON public.mt_error_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_error_logs_level ON public.mt_error_logs(level);

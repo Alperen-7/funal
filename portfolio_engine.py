@@ -14,6 +14,19 @@ import urllib.request
 import urllib.error
 import urllib.parse
 from datetime import datetime
+import warnings
+
+# macOS LibreSSL uyarılarını bastır
+warnings.filterwarnings('ignore', message='.*urllib3 v2 only supports OpenSSL.*')
+warnings.filterwarnings('ignore', category=UserWarning)
+
+try:
+    import scripts.admin_logger as admin_logger
+except ImportError:
+    try:
+        import admin_logger
+    except ImportError:
+        admin_logger = None
 
 logging.basicConfig(
     level=logging.INFO,
@@ -499,6 +512,8 @@ def fetch_market_data(raw_symbol, force_refresh=False):
     res = fetch_bist_quote(symbol, force_refresh=force_refresh)
     if res.get('success'):
         CACHE[symbol] = {'data': res, 'time': now}
+    elif admin_logger and not res.get('success'):
+        admin_logger.log_critical("EXTERNAL_API_FAILURE", f"Hisse fiyatı çekilemedi ({symbol}): {res.get('error', 'Fiyat alınamadı')}")
     return res
 
 def fetch_batch_quotes(symbols, force_refresh=False):

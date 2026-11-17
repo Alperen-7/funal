@@ -1720,6 +1720,10 @@ function loadUsers() {
     if (u.webPushNotificationEnabled === undefined && u.webPushEnabled !== undefined) {
       u.webPushNotificationEnabled = Boolean(u.webPushEnabled);
     }
+    const isAdm = Boolean(u.isAdmin || u.is_admin || u.role === 'admin' || (u.username && u.username.toLowerCase() === 'admin'));
+    u.isAdmin = isAdm;
+    u.is_admin = isAdm;
+    u.role = isAdm ? 'admin' : (u.role || 'user');
   });
 
   if (!usersList.length || !usersList.some(u => u.username.toLowerCase() === 'admin')) {
@@ -1729,6 +1733,9 @@ function loadUsers() {
       secQ: 'En sevdiğin renk?',
       secAHash: hashSecAnswer('mavi', 'admin'),
       recoveryKeyHash: hashRecoveryKey('MT-ADM1-NSEC-URE9', 'admin'),
+      role: 'admin',
+      isAdmin: true,
+      is_admin: true,
       createdAt: Date.now()
     });
     migrated = true;
