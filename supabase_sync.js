@@ -352,6 +352,9 @@ async function sbSyncUserToCloud(user) {
   const sb = await initSupabase();
   if (!sb || !user || !user.username) return;
   const isAdm = Boolean(user.isAdmin || user.is_admin || user.role === 'admin' || user.username.toLowerCase() === 'admin');
+  const emailNotificationEnabled = Boolean(user.emailNotificationEnabled !== undefined ? user.emailNotificationEnabled : (user.emailNotifications && user.emailVerified));
+  const isEmailVerified = Boolean(user.isEmailVerified !== undefined ? user.isEmailVerified : user.emailVerified);
+  const email = (user.email || '').trim();
   try {
     await sb.from('mt_users').upsert([{
       username: user.username.toLowerCase(),
@@ -360,7 +363,11 @@ async function sbSyncUserToCloud(user) {
       sec_a_hash: user.secAHash || '',
       recovery_key_hash: user.recoveryKeyHash || '',
       role: isAdm ? 'admin' : (user.role || 'user'),
-      is_admin: isAdm
+      is_admin: isAdm,
+      email: email || null,
+      email_notification_enabled: emailNotificationEnabled,
+      is_email_verified: isEmailVerified,
+      email_verified: isEmailVerified
     }], { onConflict: 'username' });
   } catch(e) {}
 }
@@ -378,6 +385,8 @@ async function sbFetchUsersFromCloud() {
       });
       return filtered.map(u => {
         const isAdm = Boolean(u.is_admin || u.role === 'admin' || (u.username && u.username.toLowerCase() === 'admin'));
+        const emailVerified = Boolean(u.is_email_verified || u.email_verified || u.isEmailVerified);
+        const emailNotifications = Boolean(u.email_notification_enabled || u.emailNotificationEnabled);
         return {
           username: u.username,
           pinHash: u.pin_hash,
@@ -388,6 +397,10 @@ async function sbFetchUsersFromCloud() {
           isAdmin: isAdm,
           is_admin: isAdm,
           email: u.email || '',
+          emailVerified: emailVerified,
+          isEmailVerified: emailVerified,
+          emailNotifications: emailNotifications,
+          emailNotificationEnabled: emailNotifications,
           createdAt: u.created_at ? new Date(u.created_at).getTime() : Date.now()
         };
       });

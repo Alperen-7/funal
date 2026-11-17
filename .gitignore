@@ -14,3 +14,4 @@ supabase_secrets.js
 dist/
 __pycache__/
 *.pyc
+*.jsonl

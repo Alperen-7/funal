@@ -155,19 +155,76 @@ def get_due_unpaid_bills():
     return due_bills
 
 
-def get_user_email(username):
-    if not SUPABASE_URL or not SUPABASE_KEY or not username:
-        return None
+def get_user_notification_profile(username):
+    """
+    Kullanıcının veritabanındaki profilini ve e-posta bildirim izinlerini dinamik olarak sorgular.
+    Dönen dict:
+    {
+        'email': str or None,
+        'email_notification_enabled': bool,
+        'is_email_verified': bool,
+        'can_receive_email': bool,
+        'reason': str
+    }
+    Kural: Sadece emailNotificationEnabled == True ve isEmailVerified == True olanlara mail gönderilebilir.
+    """
+    if not username:
+        return {'email': None, 'can_receive_email': False, 'reason': 'Kullanıcı adı belirtilmemiş'}
+
+    uname = str(username).strip().lower()
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return {'email': None, 'can_receive_email': False, 'reason': 'Supabase bağlantısı yapılandırılmamış'}
 
     url = f"{SUPABASE_URL}/rest/v1/mt_users"
-    params = {'username': f'eq.{username.lower()}', 'select': 'email'}
+    params = {'username': f'eq.{uname}', 'select': '*'}
     try:
         data = api_get(url, params=params)
-        if data and data[0].get('email'):
-            return data[0]['email']
+        if not data or len(data) == 0:
+            return {'email': None, 'can_receive_email': False, 'reason': f"'{username}' veritabanında bulunamadı"}
+
+        row = data[0]
+        email = (row.get('email') or '').strip()
+
+        # E-posta bildirim izni (snake_case veya camelCase)
+        email_enabled = bool(
+            row.get('email_notification_enabled')
+            or row.get('emailNotificationEnabled')
+            or row.get('email_notifications')
+            or row.get('emailNotifications')
+        )
+
+        # E-posta doğrulama durumu (snake_case veya camelCase)
+        email_verified = bool(
+            row.get('is_email_verified')
+            or row.get('isEmailVerified')
+            or row.get('email_verified')
+            or row.get('emailVerified')
+        )
+
+        if not email or '@' not in email:
+            return {'email': None, 'can_receive_email': False, 'reason': 'Kullanıcının geçerli bir e-posta adresi yok'}
+
+        if not email_enabled:
+            return {'email': email, 'can_receive_email': False, 'reason': 'Kullanıcı e-posta bildirimlerini kapatmış (emailNotificationEnabled == False)'}
+
+        if not email_verified:
+            return {'email': email, 'can_receive_email': False, 'reason': 'Kullanıcı e-posta adresini henüz doğrulamamış (isEmailVerified == False)'}
+
+        return {
+            'email': email,
+            'email_notification_enabled': True,
+            'is_email_verified': True,
+            'can_receive_email': True,
+            'reason': 'E-posta bildirimine uygun (Doğrulanmış ve Aktif)'
+        }
     except Exception as exc:
-        logger.warning(f'Kullanıcı e-posta sorgusu hatası ({username}): {exc}')
-    return None
+        logger.warning(f"Kullanıcı e-posta bildirim profili sorgusu hatası ({username}): {exc}")
+        return {'email': None, 'can_receive_email': False, 'reason': f"Sorgu hatası: {exc}"}
+
+
+def get_user_email(username):
+    profile = get_user_notification_profile(username)
+    return profile.get('email')
 
 
 def get_user_push_subscriptions(username):
@@ -198,12 +255,12 @@ def format_currency(amount):
 
 
 def send_email_reminder(recipient_email, bill, app_url):
-    if not resend or not RESEND_API_KEY:
-        logger.warning('Resend kütüphanesi veya RESEND_API_KEY bulunamadı, e-posta atlanıyor.')
-        return False
-
     if not recipient_email or '@' not in recipient_email:
         logger.warning(f'Geçersiz alıcı e-posta adresi: {recipient_email}')
+        return False
+
+    if not RESEND_API_KEY:
+        logger.warning('RESEND_API_KEY bulunamadı, e-posta gönderimi atlanıyor.')
         return False
 
     title = bill.get('title') or bill.get('name') or 'Fatura / Kredi Kartı'
@@ -276,17 +333,42 @@ def send_email_reminder(recipient_email, bill, app_url):
     """
 
     try:
-        params = {
-            "from": SENDER_EMAIL,
-            "to": [recipient_email],
-            "subject": f"⏰ Yaklaşan Ödeme: {title} ({amount_str})",
-            "html": html_content
-        }
-        res = resend.Emails.send(params)
-        logger.info(f"E-posta başarıyla iletildi: {recipient_email} - ID: {res.get('id') if isinstance(res, dict) else res}")
-        return True
+        if resend:
+            params = {
+                "from": SENDER_EMAIL,
+                "to": [recipient_email],
+                "subject": f"⏰ Yaklaşan Ödeme: {title} ({amount_str})",
+                "html": html_content
+            }
+            res = resend.Emails.send(params)
+            msg_id = res.get('id') if isinstance(res, dict) else res
+            logger.info(f"✓ Resend üzerinden hatırlatma e-postası iletildi: To: {recipient_email} - ID: {msg_id}")
+            return True
+        else:
+            api_url = "https://api.resend.com/emails"
+            headers = {
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            body = {
+                "from": SENDER_EMAIL,
+                "to": [recipient_email],
+                "subject": f"⏰ Yaklaşan Ödeme: {title} ({amount_str})",
+                "html": html_content
+            }
+            if requests:
+                resp = requests.post(api_url, headers=headers, json=body, timeout=12)
+                resp.raise_for_status()
+                res = resp.json()
+            else:
+                req = urllib.request.Request(api_url, data=json.dumps(body).encode('utf-8'), headers=headers, method='POST')
+                with urllib.request.urlopen(req, timeout=12) as r:
+                    res = json.loads(r.read().decode('utf-8'))
+            msg_id = res.get('id', 'N/A')
+            logger.info(f"✓ Resend REST API ile hatırlatma e-postası iletildi: To: {recipient_email} - ID: {msg_id}")
+            return True
     except Exception as exc:
-        logger.error(f"E-posta gönderiminde hata: {exc}")
+        logger.error(f"E-posta gönderiminde hata ({recipient_email}): {exc}")
         return False
 
 
@@ -390,11 +472,26 @@ def run_reminders():
                 push_sent = True
 
         email_sent = False
-        user_email = bill.get('email') or get_user_email(username)
-        if user_email:
-            email_sent = send_email_reminder(user_email, bill, APP_URL)
+        user_profile = get_user_notification_profile(username)
+        if not user_profile.get('email'):
+            fallback_mail = bill.get('email') or get_user_email(username)
+            if fallback_mail and '@' in fallback_mail:
+                user_profile = {
+                    'email': fallback_mail,
+                    'email_notification_enabled': True,
+                    'is_email_verified': True,
+                    'can_receive_email': True,
+                    'reason': 'E-posta adresi doğrudan sağlandı/çözüldü'
+                }
 
-        if push_sent or email_sent or not (subscriptions or user_email):
+        if user_profile.get('can_receive_email') and user_profile.get('email'):
+            target_email = user_profile['email']
+            logger.info(f"📧 Dinamik kullanıcı maili alındı: {target_email} (Kullanıcı: {username}, Doğrulandı: True, Bildirim: Açık)")
+            email_sent = send_email_reminder(target_email, bill, APP_URL)
+        else:
+            logger.info(f"⏭️ E-posta hatırlatması atlandı ({username}): {user_profile.get('reason')}")
+
+        if push_sent or email_sent or not (subscriptions or user_profile.get('can_receive_email')):
             mark_bill_as_notified(bill_id)
             notified += 1
 
@@ -428,9 +525,15 @@ def run_dry_run():
         uname = b.get('username', 'belirsiz')
         is_adm = is_admin_user(uname)
         adm_tag = " [ADMIN - Standart bildirimlerden muaf/filtrelendi]" if is_adm else ""
-        email = b.get('email') or get_user_email(uname)
+        profile = get_user_notification_profile(uname)
+        if profile.get('can_receive_email'):
+            mail_status = f"{profile.get('email')} (Aktif & Doğrulanmış ✓)"
+        elif profile.get('email'):
+            mail_status = f"{profile.get('email')} ({profile.get('reason')})"
+        else:
+            mail_status = 'Kayıtlı değil / Yok'
         subs = get_user_push_subscriptions(uname)
-        logger.info(f"  [{i}] {title} - {amt} | Kullanıcı: {uname}{adm_tag} | E-posta: {email or 'Kayıtlı değil'} | Push Abonelikleri: {len(subs)} cihaz")
+        logger.info(f"  [{i}] {title} - {amt} | Kullanıcı: {uname}{adm_tag} | E-posta: {mail_status} | Push: {len(subs)} cihaz")
     logger.info("=== Simülasyon tamamlandı. ===")
 
 

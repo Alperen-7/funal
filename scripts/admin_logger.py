@@ -150,11 +150,13 @@ def mask_sensitive_text(text):
 # ── 2. ADMİN E-POSTA ADRESİNİ BELİRLEME ──
 def get_admin_email():
     """
-    Öncelikle ADMIN_EMAIL ortam değişkenini kontrol eder;
-    yoksa Supabase mt_users tablosunda is_admin=true veya role='admin' kullanıcısını sorgular.
+    Öncelikle os.getenv('ADMIN_EMAIL') ortam değişkenini dinamik olarak kontrol eder.
+    Bu sayede admin e-postaları kaynak kodda asla hardcoded edilmez ve KVKK/güvenlik gereği doğrudan ortam değişkeninden beslenir.
+    Ortam değişkeni yoksa Supabase mt_users tablosunda is_admin=true veya role='admin' kullanıcısını sorgular.
     """
-    if ADMIN_EMAIL_ENV and '@' in ADMIN_EMAIL_ENV:
-        return ADMIN_EMAIL_ENV.strip()
+    admin_env = (os.getenv('ADMIN_EMAIL') or os.environ.get('ADMIN_EMAIL') or '').strip()
+    if admin_env and '@' in admin_env:
+        return admin_env
 
     if SUPABASE_URL and SUPABASE_KEY:
         try:
