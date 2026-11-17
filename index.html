@@ -511,7 +511,7 @@
               <span class="inv-auto-pulse"></span>
               <span id="invAutoTimerTxt">15 dk'da bir otomatik güncellenir</span>
             </div>
-            <span id="invLastUpdate" style="color:var(--txt3);font-size:11.5px">Son: -</span>
+            <span id="invLastUpdateWrap" style="display:inline-flex;align-items:center;gap:5px;background:var(--bg-surface2);border:1px solid var(--bdr);padding:3px 10px;border-radius:20px;font-size:12px;color:var(--txt2)">🕒 Son Güncelleme: <strong id="invLastUpdate" style="color:var(--txt);font-weight:700;">-</strong></span>
           </div>
         </div>
         <div class="invest-summary-cards">
@@ -1176,7 +1176,6 @@
           <div style="font-size:11px;color:var(--txt3);">Aktif Hesap</div>
           <div style="font-size:16px;font-weight:800;color:var(--txt);" id="settingsUsernameDisplay">Admin</div>
         </div>
-        <div id="settingsRoleBadge" style="font-size:11px;padding:3px 10px;border-radius:9999px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:var(--pri-light);font-weight:700;">Yönetici</div>
       </div>
 
       <div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid var(--bdr);padding-bottom:10px;">
@@ -1228,7 +1227,7 @@
         
         <div style="display:flex;gap:8px;margin-bottom:12px;">
           <button type="button" class="pay-btn active" id="btnPinAuthSecQ" onclick="setPinAuthMethod('secq')">🛡️ Güvenlik Sorusu</button>
-          <button type="button" class="pay-btn" id="btnPinAuthRecKey" onclick="setPinAuthMethod('reckey')">🔑 Correlation Anahtarı</button>
+          <button type="button" class="pay-btn" id="btnPinAuthRecKey" onclick="setPinAuthMethod('reckey')">🔑 Kurtarma Anahtarı</button>
         </div>
 
         <div id="pinAuthSecQWrap" style="margin-bottom:14px;">
@@ -1238,7 +1237,7 @@
         </div>
 
         <div id="pinAuthRecKeyWrap" style="display:none;margin-bottom:14px;">
-          <label for="settingsRecKeyInput" style="font-size:12px;color:var(--txt2);display:block;margin-bottom:4px;">16 Haneli Correlation / Kurtarma Anahtarınız:</label>
+          <label for="settingsRecKeyInput" style="font-size:12px;color:var(--txt2);display:block;margin-bottom:4px;">16 Haneli Kurtarma Anahtarınız:</label>
           <input type="text" id="settingsRecKeyInput" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="19" autocomplete="off" style="width:100%;box-sizing:border-box;font-family:monospace;letter-spacing:1px;background:var(--bg-surface2);border:1px solid var(--bdr);color:var(--txt);padding:8px 12px;border-radius:8px;font-size:13px;" />
           <div style="font-size:11px;color:var(--txt3);margin-top:4px;">Kayıt olurken size verilen 16 haneli SQL NEWID formatındaki anahtar.</div>
         </div>
@@ -2685,7 +2684,13 @@ async function fetchQuote(symbol) {
   const cleanSym = sym.replace('.IS', '').replace('BIST:', '').trim();
 
   try {
-    const res = await fetch(`/api/quote?symbol=${encodeURIComponent(cleanSym)}`, { cache: 'no-cache' });
+    const res = await fetch(`/api/quote?symbol=${encodeURIComponent(cleanSym)}&_t=${Date.now()}`, {
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache'
+      }
+    });
     if (res.ok) {
       const data = await res.json();
       if (data && data.price > 0) return data;
@@ -2697,6 +2702,7 @@ async function fetchQuote(symbol) {
       const fxRes = await fetch('https://scanner.tradingview.com/forex/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
         body: JSON.stringify({
           symbols: { tickers: [`FX_IDC:${cleanSym}TRY`] },
           columns: ['name', 'close', 'change', 'description']
@@ -2713,6 +2719,7 @@ async function fetchQuote(symbol) {
       const cfdRes = await fetch('https://scanner.tradingview.com/cfd/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
         body: JSON.stringify({
           symbols: { tickers: ['TVC:GOLD'] },
           columns: ['close', 'change']
@@ -2728,10 +2735,10 @@ async function fetchQuote(symbol) {
         }
       }
     } else {
-      
       const tvRes = await fetch('https://scanner.tradingview.com/turkey/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
         body: JSON.stringify({
           symbols: { tickers: [`BIST:${cleanSym}`] },
           columns: ['name', 'close', 'change', 'change_abs', 'description']
@@ -2740,7 +2747,7 @@ async function fetchQuote(symbol) {
       if (tvRes.ok) {
         const json = await tvRes.json();
         const row = json?.data?.[0]?.d;
-        if (row && row[1] !== null && row[1] !== undefined) {
+        if (row && row[1] !== null && row[1] !== undefined && row[1] > 0) {
           return {
             symbol: cleanSym,
             name: row[4] || cleanSym,
@@ -2750,9 +2757,27 @@ async function fetchQuote(symbol) {
           };
         }
       }
+
+      const yfRes = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSym)}.IS?interval=1d&range=1d`, { cache: 'no-store' });
+      if (yfRes.ok) {
+        const yfJson = await yfRes.json();
+        const yfMeta = yfJson?.chart?.result?.[0]?.meta;
+        if (yfMeta && yfMeta.regularMarketPrice && yfMeta.regularMarketPrice > 0) {
+          const prev = yfMeta.chartPreviousClose || yfMeta.previousClose;
+          const price = Math.round(yfMeta.regularMarketPrice * 100) / 100;
+          const chgPct = prev ? Math.round(((price - prev) / prev) * 10000) / 100 : 0;
+          return {
+            symbol: cleanSym,
+            name: yfMeta.shortName || cleanSym,
+            price: price,
+            changePct: chgPct,
+            change: prev ? Math.round((price - prev) * 100) / 100 : 0
+          };
+        }
+      }
     }
   } catch(err) {
-    console.warn('TradingView direct quote fetch error:', err);
+    console.warn(err);
   }
 
   return null;
@@ -2771,7 +2796,13 @@ async function refreshInvestPrices(silent = false) {
 
   try {
     const syms = investData.map(i => i.symbol).join(',');
-    const batchRes = await fetch(`/api/quotes?symbols=${encodeURIComponent(syms)}`, { cache: 'no-cache' });
+    const batchRes = await fetch(`/api/quotes?symbols=${encodeURIComponent(syms)}&_t=${Date.now()}`, {
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache'
+      }
+    });
     if (batchRes.ok) {
       const batchData = await batchRes.json();
       for (const item of investData) {
@@ -2803,9 +2834,19 @@ async function refreshInvestPrices(silent = false) {
   if (btn) btn.classList.remove('spinning');
   
   invLastRefreshTime = Date.now();
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const timeStr = now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+  const fullStr = `${dateStr} ${timeStr}`;
   const updateEl = document.getElementById('invLastUpdate');
-  if (updateEl) updateEl.textContent = 'Son: ' + new Date().toLocaleTimeString('tr-TR', {hour:'2-digit', minute:'2-digit'});
-  if (!silent) toast(`✓ ${updatedCount} varlığın anlık piyasa fiyatı güncellendi!`, 'ok');
+  if (updateEl) updateEl.textContent = fullStr;
+  if (!silent) {
+    if (updatedCount > 0) {
+      toast(`✓ ${updatedCount} varlığın anlık piyasa fiyatı güncellendi!`, 'ok');
+    } else {
+      toast('Piyasa fiyatları kontrol edildi, güncel.', 'ok');
+    }
+  }
 }
 
 function renderInvest() {
@@ -2864,6 +2905,9 @@ function renderInvest() {
           <div class="inv-metric">
             <span class="inv-metric-lbl">Güncel Fiyat</span>
             <span class="inv-metric-val" style="color:var(--txt)">${fmt(curPrice)} ₺</span>
+            <span class="inv-metric-sub" style="font-size:10px;color:var(--txt3);margin-top:2px;display:block">
+              ${item.lastUpdated ? ('Son Güncelleme: ' + new Date(item.lastUpdated).toLocaleDateString('tr-TR', {day:'2-digit', month:'2-digit'}) + ' ' + new Date(item.lastUpdated).toLocaleTimeString('tr-TR', {hour:'2-digit', minute:'2-digit'})) : 'Maliyet Fiyatı'}
+            </span>
           </div>
 
           <div class="inv-metric">
@@ -3785,15 +3829,6 @@ function openUserSettingsModal() {
   const userDisplay = document.getElementById('settingsUsernameDisplay');
   if (userDisplay) userDisplay.textContent = formatUserName(user.username);
 
-  const roleBadge = document.getElementById('settingsRoleBadge');
-  if (roleBadge) {
-    const isAdmin = user.username.toLowerCase() === 'admin';
-    roleBadge.textContent = isAdmin ? 'Yönetici' : 'Standart Kullanıcı';
-    roleBadge.style.background = isAdmin ? 'rgba(99,102,241,0.15)' : 'rgba(16,185,129,0.15)';
-    roleBadge.style.color = isAdmin ? 'var(--pri-light)' : 'var(--income)';
-    roleBadge.style.borderColor = isAdmin ? 'rgba(99,102,241,0.3)' : 'rgba(16,185,129,0.3)';
-  }
-
   const qEl = document.getElementById('settingsSecQQuestion');
   if (qEl) qEl.textContent = user.secQ || 'En sevdiğin renk?';
 
@@ -4059,7 +4094,7 @@ function submitChangeUserPin() {
   if (currentPinAuthMethod === 'reckey') {
     const recKey = (document.getElementById('settingsRecKeyInput')?.value || '').trim();
     if (!recKey) {
-      toast('Lütfen 16 haneli correlation / kurtarma anahtarınızı girin!', 'err');
+      toast('Lütfen 16 haneli kurtarma anahtarınızı girin!', 'err');
       return;
     }
     if (user.recoveryKeyHash && hashRecoveryKey(recKey, user.username) === user.recoveryKeyHash) {
@@ -4078,7 +4113,7 @@ function submitChangeUserPin() {
 
   if (!verified) {
     toast(currentPinAuthMethod === 'reckey'
-      ? '❌ 16 haneli correlation / kurtarma anahtarı geçersiz!'
+      ? '❌ 16 haneli kurtarma anahtarı geçersiz!'
       : '❌ Güvenlik sorusu cevabı hatalı!', 'err');
     return;
   }
@@ -6234,6 +6269,7 @@ function goApp(app) {
     loadInvest();
     loadInvestTrades();
     switchInvTab('dash');
+    refreshInvestPrices(true);
   }
 }
 
