@@ -479,7 +479,11 @@
           <p style="font-size:13px;color:var(--txt2);margin-top:2px">Her ay ödediğiniz kira, fatura, abonelik ve borçları kaydedin. Ödeme gününde size hatırlatılır.</p>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-          <div id="btnEnablePush" style="width:auto;padding:8px 16px;display:inline-flex;align-items:center;gap:6px;pointer-events:none;cursor:default;user-select:none;opacity:0.85;border-radius:var(--pill);font-size:12.5px;font-weight:700;border:1px solid var(--bdr);background:rgba(255,255,255,0.05);color:var(--txt3);">⚪ Bildirimler: Pasif 🔔</div>
+          <div id="btnEnablePush" style="width:auto;padding:7px 15px;display:inline-flex;align-items:center;gap:8px;pointer-events:none;cursor:default;user-select:none;opacity:0.85;border-radius:var(--pill);font-size:12px;font-weight:700;border:1px solid var(--bdr);background:rgba(255,255,255,0.05);color:var(--txt3);">
+            <span style="display:inline-flex;align-items:center;gap:5px;">⚪ <strong>Web:</strong> Pasif</span>
+            <span style="opacity:0.3;color:var(--txt3);margin:0 2px;">|</span>
+            <span style="display:inline-flex;align-items:center;gap:5px;">⚪ <strong>E-Posta:</strong> Pasif</span>
+          </div>
           <button type="button" class="btn-pri" style="width:auto;padding:9px 18px" onclick="openAddBill()">+ Yeni Sabit Ödeme Ekle</button>
         </div>
       </div>
@@ -3918,18 +3922,29 @@ function updatePushBtnState() {
   badge.style.cursor = 'default';
   badge.style.userSelect = 'none';
 
+  const webColor = isWebPushActive ? 'var(--income)' : 'var(--txt3)';
+  const emailColor = isEmailActive ? 'var(--income)' : 'var(--txt3)';
+  const webDot = isWebPushActive ? '🟢' : '⚪';
+  const emailDot = isEmailActive ? '🟢' : '⚪';
+
+  badge.innerHTML = `
+    <span style="display:inline-flex;align-items:center;gap:5px;color:${webColor};">
+      ${webDot} <strong>Web:</strong> ${isWebPushActive ? 'Aktif' : 'Pasif'}
+    </span>
+    <span style="opacity:0.3;color:var(--txt3);margin:0 2px;">|</span>
+    <span style="display:inline-flex;align-items:center;gap:5px;color:${emailColor};">
+      ${emailDot} <strong>E-Posta:</strong> ${isEmailActive ? 'Aktif' : 'Pasif'}
+    </span>
+  `;
+
   if (isActive) {
-    badge.innerHTML = '✓ Bildirimler: Aktif 🔔';
     badge.style.borderColor = 'rgba(16,185,129,0.35)';
-    badge.style.color = 'var(--income)';
-    badge.style.background = 'rgba(16,185,129,0.12)';
+    badge.style.background = 'rgba(16,185,129,0.1)';
     badge.style.opacity = '0.95';
   } else {
-    badge.innerHTML = '⚪ Bildirimler: Pasif 🔔';
     badge.style.borderColor = 'var(--bdr)';
-    badge.style.color = 'var(--txt3)';
     badge.style.background = 'rgba(255,255,255,0.05)';
-    badge.style.opacity = '0.7';
+    badge.style.opacity = '0.75';
   }
 }
 
