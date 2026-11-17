@@ -354,5 +354,60 @@ def run_reminders():
     logger.info(f"=== Cron Tamamlandı: {len(bills)} faturadan {notified} adedi için bildirim süreci başarıyla yürütüldü. ===")
 
 
+def run_test_email(target_email):
+    logger.info(f"=== Test E-Posta Gönderimi Başlatılıyor: {target_email} ===")
+    mock_bill = {
+        'id': 'test-bill-001',
+        'title': 'Test Kredi Kartı Ekstresi / Elektrik Faturası',
+        'amount': 1450.75,
+        'due_date': datetime.now(timezone.utc).strftime('%Y-%m-%d'),
+        'username': 'test_user'
+    }
+    success = send_email_reminder(target_email, mock_bill, APP_URL)
+    if success:
+        logger.info(f"✓ Test e-postası başarıyla gönderildi! Lütfen {target_email} gelen kutunuzu (veya spam klasörünü) kontrol edin.")
+    else:
+        logger.error("❌ Test e-postası gönderilemedi. Lütfen RESEND_API_KEY ve SENDER_EMAIL ayarlarınızı kontrol edin.")
+    return success
+
+
+def run_dry_run():
+    logger.info("=== DRY-RUN (Simülasyon Modu) Başlatıldı - Veritabanı Değiştirilmeyecek ===")
+    bills = get_due_unpaid_bills()
+    logger.info(f"Bulunan vadesi gelmiş ödenmemiş fatura sayısı: {len(bills)}")
+    for i, b in enumerate(bills, 1):
+        title = b.get('title') or b.get('name') or 'İsimsiz'
+        amt = format_currency(b.get('amount', 0))
+        uname = b.get('username', 'belirsiz')
+        email = b.get('email') or get_user_email(uname)
+        subs = get_user_push_subscriptions(uname)
+        logger.info(f"  [{i}] {title} - {amt} | Kullanıcı: {uname} | E-posta: {email or 'Kayıtlı değil'} | Push Abonelikleri: {len(subs)} cihaz")
+    logger.info("=== Simülasyon tamamlandı. ===")
+
+
+def check_status():
+    logger.info("=== MyTakip Bildirim Servisi Durum Raporu ===")
+    logger.info(f"Supabase URL: {'Tanımlı (' + SUPABASE_URL[:25] + '...)' if SUPABASE_URL else 'Eksik ❌'}")
+    logger.info(f"Supabase Key: {'Tanımlı (Gizlendi)' if SUPABASE_KEY else 'Eksik ❌'}")
+    logger.info(f"Resend API Key: {'Tanımlı (Gizlendi)' if RESEND_API_KEY else 'Eksik ❌'}")
+    logger.info(f"Sender Email: {SENDER_EMAIL}")
+    logger.info(f"VAPID Private Key: {'Tanımlı (Gizlendi)' if VAPID_PRIVATE_KEY else 'Eksik ❌'}")
+    logger.info(f"VAPID Public Key: {'Tanımlı' if VAPID_PUBLIC_KEY else 'Eksik ❌'}")
+    logger.info(f"App URL: {APP_URL}")
+    logger.info("===========================================")
+
+
 if __name__ == '__main__':
-    run_reminders()
+    args = sys.argv[1:]
+    if '--status' in args:
+        check_status()
+    elif '--dry-run' in args:
+        run_dry_run()
+    elif '--test-email' in args:
+        idx = args.index('--test-email')
+        if idx + 1 < len(args):
+            run_test_email(args[idx + 1])
+        else:
+            logger.error("Lütfen hedef e-posta adresini belirtin: --test-email ornek@domain.com")
+    else:
+        run_reminders()

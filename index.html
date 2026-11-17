@@ -475,7 +475,10 @@
           <h2 style="font-size:20px;font-weight:800;letter-spacing:-0.5px">🔔 Aylık Düzenli / Sabit Ödemelerim</h2>
           <p style="font-size:13px;color:var(--txt2);margin-top:2px">Her ay ödediğiniz kira, fatura, abonelik ve borçları kaydedin. Ödeme gününde size hatırlatılır.</p>
         </div>
-        <button class="btn-pri" style="width:auto;padding:9px 18px" onclick="openAddBill()">+ Yeni Sabit Ödeme Ekle</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <button type="button" class="btn-sec" id="btnEnablePush" style="width:auto;padding:9px 16px;display:flex;align-items:center;gap:6px;" onclick="requestNotificationPermission()">🔔 Bildirimleri Aç</button>
+          <button type="button" class="btn-pri" style="width:auto;padding:9px 18px" onclick="openAddBill()">+ Yeni Sabit Ödeme Ekle</button>
+        </div>
       </div>
 
       <div class="bills-grid" id="billsGrid"></div>
@@ -3563,6 +3566,7 @@ function renderBillsReminder() {
 }
 
 function renderBills() {
+  updatePushBtnState();
   const gridEl = document.getElementById('billsGrid');
   const emptyEl = document.getElementById('billsEmpty');
   if (!gridEl) return;
@@ -3604,6 +3608,68 @@ function renderBills() {
       </div>
     `;
   }).join('');
+}
+
+function updatePushBtnState() {
+  const btn = document.getElementById('btnEnablePush');
+  if (!btn || !('Notification' in window)) return;
+  if (Notification.permission === 'granted') {
+    btn.innerHTML = '✓ Bildirimler Açık 🔔';
+    btn.style.borderColor = 'var(--income)';
+    btn.style.color = 'var(--income)';
+  } else {
+    btn.innerHTML = '🔔 Bildirimleri Aç';
+    btn.style.borderColor = '';
+    btn.style.color = '';
+  }
+}
+
+async function requestNotificationPermission() {
+  if (!('Notification' in window)) {
+    toast('Tarayıcınız Web Push bildirimini desteklemiyor.', 'err');
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    if ('serviceWorker' in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.register('/sw.js');
+        await navigator.serviceWorker.ready;
+        reg.showNotification('MyTakip Bildirim Testi 🔔', {
+          body: 'Bildirimleriniz aktif! Son ödeme gününde burada görünecek.',
+          icon: './favicon.ico'
+        });
+        toast('✓ Bildirimler aktif! Test bildirimi gönderildi.', 'ok');
+      } catch(e) {
+        toast('✓ Bildirim izniniz açık ve devrede.', 'ok');
+      }
+    } else {
+      toast('✓ Bildirim izniniz açık ve devrede.', 'ok');
+    }
+    updatePushBtnState();
+    return;
+  }
+
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm === 'granted') {
+      if ('serviceWorker' in navigator) {
+        try {
+          const reg = await navigator.serviceWorker.register('/sw.js');
+          await navigator.serviceWorker.ready;
+          reg.showNotification('MyTakip Bildirim Testi 🔔', {
+            body: 'Tebrikler! Bildirimler başarıyla açıldı.',
+            icon: './favicon.ico'
+          });
+        } catch(e) {}
+      }
+      toast('✓ Bildirim izni başarıyla verildi!', 'ok');
+      updatePushBtnState();
+    } else {
+      toast('Bildirim izni reddedildi.', 'err');
+    }
+  } catch(e) {
+    toast('Bildirim izni istenirken hata oluştu.', 'err');
+  }
 }
 
 function payBill(id) {
