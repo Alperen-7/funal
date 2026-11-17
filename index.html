@@ -479,7 +479,7 @@
           <p style="font-size:13px;color:var(--txt2);margin-top:2px">Her ay ödediğiniz kira, fatura, abonelik ve borçları kaydedin. Ödeme gününde size hatırlatılır.</p>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-          <button type="button" class="btn-sec" id="btnEnablePush" style="width:auto;padding:9px 16px;display:flex;align-items:center;gap:6px;" onclick="requestNotificationPermission()">🔔 Bildirimleri Aç</button>
+          <div id="btnEnablePush" style="width:auto;padding:8px 16px;display:inline-flex;align-items:center;gap:6px;pointer-events:none;cursor:default;user-select:none;opacity:0.85;border-radius:var(--pill);font-size:12.5px;font-weight:700;border:1px solid var(--bdr);background:rgba(255,255,255,0.05);color:var(--txt3);">⚪ Bildirimler: Pasif 🔔</div>
           <button type="button" class="btn-pri" style="width:auto;padding:9px 18px" onclick="openAddBill()">+ Yeni Sabit Ödeme Ekle</button>
         </div>
       </div>
@@ -1197,22 +1197,27 @@
               <strong style="font-size:14px;color:var(--txt);">🌐 Web Push Bildirimleri</strong>
               <div style="font-size:12px;color:var(--txt2);">Fatura son ödeme günlerinde tarayıcınıza anlık bildirim yollanır.</div>
             </div>
-            <span id="settingsWebPushStatusBadge" style="font-size:11px;padding:2px 8px;border-radius:6px;font-weight:700;background:rgba(255,255,255,0.06);color:var(--txt3);">Kapalı</span>
+            <span id="settingsWebPushStatusBadge" style="font-size:11px;padding:3px 10px;border-radius:6px;font-weight:700;background:rgba(255,255,255,0.06);color:var(--txt3);pointer-events:none;cursor:default;user-select:none;opacity:0.85;">Pasif</span>
           </div>
-          <div style="margin-top:8px;" id="settingsWebPushActionArea"></div>
+          <div style="margin-top:8px;" id="settingsWebPushActionArea">
+            <span style="display:inline-block;padding:3px 9px;border-radius:5px;font-size:11px;background:var(--bg-surface);border:1px solid var(--bdr);color:var(--txt3);pointer-events:none;cursor:default;user-select:none;opacity:0.85;">Durum: Pasif</span>
+          </div>
         </div>
 
         <div style="border-top:1px solid var(--bdr);padding-top:16px;">
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px;">
-            <input type="checkbox" id="settingEmailNotifyCheckbox" onchange="toggleEmailNotificationSetting(event)" style="accent-color:var(--pri);width:16px;height:16px;" />
-            <strong style="font-size:14px;color:var(--txt);">✉️ E-Posta ile Hatırlatma Al</strong>
-          </label>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="checkbox" id="settingEmailNotifyCheckbox" onchange="toggleEmailNotificationSetting(event)" style="accent-color:var(--pri);width:16px;height:16px;" />
+              <strong style="font-size:14px;color:var(--txt);">✉️ E-Posta ile Hatırlatma Al</strong>
+            </label>
+            <span id="settingsEmailStatusBadge" style="font-size:11px;padding:3px 10px;border-radius:6px;font-weight:700;background:rgba(255,255,255,0.06);color:var(--txt3);pointer-events:none;cursor:default;user-select:none;opacity:0.85;">Pasif</span>
+          </div>
           <div style="font-size:12px;color:var(--txt2);margin-bottom:10px;">Faturanın son ödeme gününde detaylı bilgi e-posta adresinize iletilir.</div>
 
           <div id="settingsEmailSectionWrap" style="display:none;background:var(--bg-surface2);border:1px solid var(--bdr);border-radius:10px;padding:12px 14px;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
               <label for="settingsEmailInput" style="font-size:12px;color:var(--txt);font-weight:600;">E-Posta Adresi *</label>
-              <span id="settingsEmailStatusBadge" style="font-size:11px;padding:2px 8px;border-radius:6px;font-weight:700;">Doğrulanmadı ⚠️</span>
+              <span id="settingsEmailVerifiedBadge" style="font-size:11px;padding:2px 8px;border-radius:6px;font-weight:700;pointer-events:none;cursor:default;opacity:0.85;">Doğrulanmadı ⚠️</span>
             </div>
             <div style="display:flex;gap:8px;margin-bottom:8px;">
               <input type="email" id="settingsEmailInput" placeholder="ornek@alanadi.com" style="flex:1;background:var(--bg-surface);border:1px solid var(--bdr);color:var(--txt);padding:8px 12px;border-radius:8px;font-size:13px;" />
@@ -1708,6 +1713,12 @@ function loadUsers() {
     if (!u.recoveryKeyHash) {
       u.recoveryKeyHash = hashRecoveryKey('MT-' + u.username.toUpperCase().padEnd(4, 'X').slice(0,4) + '-SEC-KEY9', u.username);
       migrated = true;
+    }
+    if (u.emailNotificationEnabled === undefined && u.emailNotifications !== undefined) {
+      u.emailNotificationEnabled = Boolean(u.emailNotifications && u.email && u.emailVerified);
+    }
+    if (u.webPushNotificationEnabled === undefined && u.webPushEnabled !== undefined) {
+      u.webPushNotificationEnabled = Boolean(u.webPushEnabled);
     }
   });
 
@@ -3878,16 +3889,39 @@ function renderBills() {
 }
 
 function updatePushBtnState() {
-  const btn = document.getElementById('btnEnablePush');
-  if (!btn || !('Notification' in window)) return;
-  if (Notification.permission === 'granted') {
-    btn.innerHTML = '✓ Bildirimler Açık 🔔';
-    btn.style.borderColor = 'var(--income)';
-    btn.style.color = 'var(--income)';
+  const badge = document.getElementById('btnEnablePush');
+  if (!badge) return;
+  const activeUser = localStorage.getItem(AUTH_KEY);
+  let user = null;
+  if (activeUser && typeof usersList !== 'undefined') {
+    user = usersList.find(u => u.username.toLowerCase() === activeUser.toLowerCase());
+  }
+  const isWebPushActive = user
+    ? (user.webPushNotificationEnabled !== undefined ? Boolean(user.webPushNotificationEnabled) : (user.webPushEnabled !== false && typeof Notification !== 'undefined' && Notification.permission === 'granted'))
+    : (typeof Notification !== 'undefined' && Notification.permission === 'granted');
+
+  const isEmailActive = user
+    ? (user.emailNotificationEnabled !== undefined ? Boolean(user.emailNotificationEnabled) : Boolean(user.emailNotifications && user.emailVerified))
+    : false;
+
+  const isActive = isWebPushActive || isEmailActive;
+
+  badge.style.pointerEvents = 'none';
+  badge.style.cursor = 'default';
+  badge.style.userSelect = 'none';
+
+  if (isActive) {
+    badge.innerHTML = '✓ Bildirimler: Aktif 🔔';
+    badge.style.borderColor = 'rgba(16,185,129,0.35)';
+    badge.style.color = 'var(--income)';
+    badge.style.background = 'rgba(16,185,129,0.12)';
+    badge.style.opacity = '0.95';
   } else {
-    btn.innerHTML = '🔔 Bildirimleri Aç';
-    btn.style.borderColor = '';
-    btn.style.color = '';
+    badge.innerHTML = '⚪ Bildirimler: Pasif 🔔';
+    badge.style.borderColor = 'var(--bdr)';
+    badge.style.color = 'var(--txt3)';
+    badge.style.background = 'rgba(255,255,255,0.05)';
+    badge.style.opacity = '0.7';
   }
 }
 
@@ -4005,35 +4039,59 @@ function updateSettingsNotificationUI() {
 
   const webPushBadge = document.getElementById('settingsWebPushStatusBadge');
   const webPushAction = document.getElementById('settingsWebPushActionArea');
-  const isGranted = typeof Notification !== 'undefined' && Notification.permission === 'granted' && user.webPushEnabled !== false;
+  const isWebPushActive = user.webPushNotificationEnabled !== undefined
+    ? Boolean(user.webPushNotificationEnabled)
+    : (user.webPushEnabled !== false && typeof Notification !== 'undefined' && Notification.permission === 'granted');
 
   if (webPushBadge) {
-    webPushBadge.textContent = isGranted ? 'Aktif 🟢' : 'Kapalı ⚪';
-    webPushBadge.style.color = isGranted ? 'var(--income)' : 'var(--txt3)';
-    webPushBadge.style.background = isGranted ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.06)';
+    webPushBadge.textContent = isWebPushActive ? 'Aktif' : 'Pasif';
+    webPushBadge.style.color = isWebPushActive ? 'var(--income)' : 'var(--txt3)';
+    webPushBadge.style.background = isWebPushActive ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.06)';
+    webPushBadge.style.pointerEvents = 'none';
+    webPushBadge.style.cursor = 'default';
+    webPushBadge.style.userSelect = 'none';
+    webPushBadge.style.opacity = isWebPushActive ? '0.95' : '0.65';
   }
   if (webPushAction) {
-    webPushAction.innerHTML = isGranted
-      ? `<button type="button" class="btn-sec" style="font-size:12px;padding:6px 12px;color:var(--expense);border-color:rgba(239,68,68,0.4);" onclick="disableWebPushNotifications()">🔕 Web Bildirimlerini Kapat</button>`
-      : `<button type="button" class="btn-pri" style="font-size:12px;padding:6px 14px;width:auto;" onclick="enableWebPushNotifications()">🔔 Web Bildirimlerini Aç</button>`;
+    webPushAction.innerHTML = `
+      <span style="display:inline-block;padding:3px 9px;border-radius:5px;font-size:11px;background:var(--bg-surface);border:1px solid var(--bdr);color:${isWebPushActive ? 'var(--income)' : 'var(--txt3)'};pointer-events:none;cursor:default;user-select:none;opacity:0.85;">
+        Durum: <strong>${isWebPushActive ? 'Aktif' : 'Pasif'}</strong>
+      </span>
+    `;
   }
 
   const emailCheckbox = document.getElementById('settingEmailNotifyCheckbox');
   const emailWrap = document.getElementById('settingsEmailSectionWrap');
   const emailInput = document.getElementById('settingsEmailInput');
   const emailBadge = document.getElementById('settingsEmailStatusBadge');
+  const emailVerifiedBadge = document.getElementById('settingsEmailVerifiedBadge');
 
-  const hasEmailNotify = Boolean(user.emailNotifications);
-  if (emailCheckbox) emailCheckbox.checked = hasEmailNotify;
-  if (emailWrap) emailWrap.style.display = hasEmailNotify ? 'block' : 'none';
+  const isEmailActive = user.emailNotificationEnabled !== undefined
+    ? Boolean(user.emailNotificationEnabled)
+    : Boolean(user.emailNotifications && user.email && user.emailVerified);
+
+  if (emailCheckbox) emailCheckbox.checked = isEmailActive;
+  if (emailWrap) emailWrap.style.display = isEmailActive ? 'block' : 'none';
   if (emailInput && !emailInput.value) emailInput.value = user.email || '';
 
   if (emailBadge) {
-    const isVerified = Boolean(user.email && user.emailVerified);
-    emailBadge.textContent = isVerified ? '✓ Doğrulandı 🟢' : 'Doğrulanmadı ⚠️';
-    emailBadge.style.color = isVerified ? 'var(--income)' : 'var(--amber)';
-    emailBadge.style.background = isVerified ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)';
+    emailBadge.textContent = isEmailActive ? 'Aktif' : 'Pasif';
+    emailBadge.style.color = isEmailActive ? 'var(--income)' : 'var(--txt3)';
+    emailBadge.style.background = isEmailActive ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.06)';
+    emailBadge.style.pointerEvents = 'none';
+    emailBadge.style.cursor = 'default';
+    emailBadge.style.userSelect = 'none';
+    emailBadge.style.opacity = isEmailActive ? '0.95' : '0.65';
   }
+
+  if (emailVerifiedBadge) {
+    const isVerified = Boolean(user.email && user.emailVerified);
+    emailVerifiedBadge.textContent = isVerified ? '✓ Doğrulandı 🟢' : 'Doğrulanmadı ⚠️';
+    emailVerifiedBadge.style.color = isVerified ? 'var(--income)' : 'var(--amber)';
+    emailVerifiedBadge.style.background = isVerified ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)';
+  }
+
+  updatePushBtnState();
 }
 
 async function disableWebPushNotifications() {
@@ -4043,6 +4101,7 @@ async function disableWebPushNotifications() {
     const user = usersList.find(u => u.username.toLowerCase() === activeUser.toLowerCase());
     if (user) {
       user.webPushEnabled = false;
+      user.webPushNotificationEnabled = false;
       saveUsers();
     }
     if (typeof sbDeletePushSubscription === 'function') {
@@ -4080,6 +4139,7 @@ async function enableWebPushNotifications() {
     const user = usersList.find(u => u.username.toLowerCase() === activeUser.toLowerCase());
     if (user) {
       user.webPushEnabled = true;
+      user.webPushNotificationEnabled = true;
       saveUsers();
     }
   }
@@ -4108,12 +4168,14 @@ function toggleEmailNotificationSetting(e) {
 
   if (!isChecked) {
     user.emailNotifications = false;
+    user.emailNotificationEnabled = false;
     saveUsers();
     toast('E-posta bildirimleri kapatıldı.', 'info');
     updateSettingsNotificationUI();
   } else {
     if (user.email && user.emailVerified) {
       user.emailNotifications = true;
+      user.emailNotificationEnabled = true;
       saveUsers();
       toast('✓ E-posta bildirimleri açıldı.', 'ok');
       updateSettingsNotificationUI();
@@ -4164,6 +4226,7 @@ function confirmEmailVerificationCode() {
   user.email = pendingEmailAddress;
   user.emailVerified = true;
   user.emailNotifications = true;
+  user.emailNotificationEnabled = true;
   saveUsers();
 
   pendingEmailVerificationCode = null;
