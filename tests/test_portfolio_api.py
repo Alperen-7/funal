@@ -16,9 +16,19 @@ Kullanım:
     python3 test_portfolio_api.py
 """
 
+import os
 import sys
 import time
 from datetime import datetime
+
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(ROOT_DIR) if os.path.basename(ROOT_DIR) == 'tests' else ROOT_DIR
+BACKEND_DIR = os.path.join(PROJECT_ROOT, 'backend')
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+if os.path.isdir(BACKEND_DIR) and BACKEND_DIR not in sys.path:
+    sys.path.insert(0, BACKEND_DIR)
+
 from portfolio_engine import fetch_market_data
 
 def format_currency(val, symbol='TRY'):

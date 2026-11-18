@@ -5,7 +5,12 @@ import sys
 import unittest
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, ROOT_DIR)
+PROJECT_ROOT = os.path.dirname(ROOT_DIR) if os.path.basename(ROOT_DIR) == 'tests' else ROOT_DIR
+BACKEND_DIR = os.path.join(PROJECT_ROOT, 'backend')
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+if os.path.isdir(BACKEND_DIR) and BACKEND_DIR not in sys.path:
+    sys.path.insert(0, BACKEND_DIR)
 
 import mobile_api
 import server

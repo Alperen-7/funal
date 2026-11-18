@@ -42,7 +42,9 @@ function build() {
     fs.mkdirSync(dir, { recursive: true });
 
     for (const file of WEB_FILES) {
-      const src = path.join(ROOT, file);
+      const src = fs.existsSync(path.join(ROOT, 'web', file))
+        ? path.join(ROOT, 'web', file)
+        : path.join(ROOT, file);
       if (!fs.existsSync(src)) {
         throw new Error('Eksik web dosyasi: ' + file);
       }

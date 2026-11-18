@@ -5,7 +5,7 @@
     "command": "rm -f _redirects"
   },
   "assets": {
-    "directory": ".",
+    "directory": "web",
     "not_found_handling": "single-page-application"
   }
 }

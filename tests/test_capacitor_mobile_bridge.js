@@ -45,7 +45,8 @@ console.log('[PASS] out/ ve www/ klasörlerine temiz whitelist asset ihracı ba�
 
 // 4. Mobil İstemci Köprüsü (mobile.js) Kontrolleri
 console.log('\n--- 4. TEST: Mobil İstemci Köprüsü (mobile.js) ---');
-const mobileJsCode = fs.readFileSync('mobile.js', 'utf-8');
+const mobileJsPath = fs.existsSync('web/mobile.js') ? 'web/mobile.js' : 'mobile.js';
+const mobileJsCode = fs.readFileSync(mobileJsPath, 'utf-8');
 assert(mobileJsCode.includes('isNativePlatform'), 'Capacitor native platform tespiti yapılmalıdır');
 assert(mobileJsCode.includes('Authorization'), 'Bearer token header enjeksiyonu yapılmalıdır');
 assert(mobileJsCode.includes('/api/auth/token'), '/api/auth/token istek mantığı bulunmalıdır');
@@ -57,7 +58,8 @@ console.log('[PASS] mobile.js; FCM push izni/kaydı, Bearer token interceptor, A
 
 // 5. Mobil UI/UX Safe Area ve Klavye Stilleri (style.css)
 console.log('\n--- 5. TEST: Mobile Safe Area (Notch / Dynamic Island) & CSS ---');
-const styleCssCode = fs.readFileSync('style.css', 'utf-8');
+const styleCssPath = fs.existsSync('web/style.css') ? 'web/style.css' : 'style.css';
+const styleCssCode = fs.readFileSync(styleCssPath, 'utf-8');
 assert(styleCssCode.includes('.pt-safe'), '.pt-safe yardımcı sınıfı style.css içinde tanımlanmalıdır');
 assert(styleCssCode.includes('.pb-safe'), '.pb-safe yardımcı sınıfı style.css içinde tanımlanmalıdır');
 assert(styleCssCode.includes('env(safe-area-inset-top)'), 'safe-area-inset-top kullanılmalıdır');
@@ -67,7 +69,8 @@ console.log('[PASS] style.css; Çentik / Dynamic Island safe-area padding ve kla
 
 // 6. Yorum Satırı Kısıtı Kontrolü (index.html ve style.css)
 console.log('\n--- 6. TEST: Zero Developer Comments Kısıtı Kontrolü ---');
-const htmlCode = fs.readFileSync('index.html', 'utf-8');
+const htmlPath = fs.existsSync('web/index.html') ? 'web/index.html' : 'index.html';
+const htmlCode = fs.readFileSync(htmlPath, 'utf-8');
 const htmlComments = htmlCode.match(/<!--[\s\S]*?-->/g) || [];
 // Mevcut sistem yorumları dışındaki developer yorumlarını kontrol et
 const devHtmlComments = htmlComments.filter(c => !c.includes('Google Tag') && !c.includes('DOCTYPE'));
@@ -81,7 +84,8 @@ console.log('[PASS] index.html ve style.css içinde sıfır geliştirici yorum k
 // 7. Python Backend CORS, Auth & FCM Entegrasyonu (test_mobile_backend.py)
 console.log('\n--- 7. TEST: Python Backend Mobil API & FCM Modülleri ---');
 const pyBin = fs.existsSync('/usr/bin/python3') ? '/usr/bin/python3' : 'python3';
-const pyResult = execSync(`${pyBin} test_mobile_backend.py`, { encoding: 'utf-8' });
+const pyBackendTestPath = fs.existsSync('tests/test_mobile_backend.py') ? 'tests/test_mobile_backend.py' : 'test_mobile_backend.py';
+const pyResult = execSync(`${pyBin} ${pyBackendTestPath}`, { encoding: 'utf-8' });
 console.log(pyResult.trim());
 console.log('[PASS] Python backend; CORS mobile originleri, Bearer token ve FCM yönlendirmeleriyle %100 uyumlu.');
 

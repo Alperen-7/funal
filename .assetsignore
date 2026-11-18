@@ -21,6 +21,8 @@ vercel.json
 
 www/
 out/
+backend/
+tests/
 android/
 ios/
 capacitor.config.ts

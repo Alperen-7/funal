@@ -7,10 +7,18 @@ import json
 import urllib.request
 import urllib.parse
 import time
+import sys
 import os
 import re
 import portfolio_engine
 import mobile_api
+
+BACKEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'backend')
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+if os.path.isdir(BACKEND_DIR) and BACKEND_DIR not in sys.path:
+    sys.path.insert(0, BACKEND_DIR)
 
 try:
     import scripts.admin_logger as admin_logger
@@ -21,7 +29,8 @@ except ImportError:
         admin_logger = None
 
 PORT = int(os.environ.get('PORT', 8765))
-DIRECTORY = os.path.dirname(os.path.abspath(__file__))
+WEB_DIR = os.path.join(PROJECT_ROOT, 'web')
+DIRECTORY = WEB_DIR if os.path.isdir(WEB_DIR) else PROJECT_ROOT
 
 CACHE = portfolio_engine.CACHE
 CACHE_TTL = portfolio_engine.CACHE_TTL

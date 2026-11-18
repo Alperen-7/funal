@@ -1,7 +1,7 @@
 {
   "version": 2,
   "buildCommand": "echo 'Static build complete'",
-  "outputDirectory": ".",
+  "outputDirectory": "web",
   "cleanUrls": true,
   "rewrites": [
     {

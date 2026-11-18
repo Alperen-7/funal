@@ -9,7 +9,9 @@
     "cap:sync": "npm run build:web && cap sync",
     "mobile:android": "npm run cap:sync && cap open android",
     "mobile:ios": "npm run cap:sync && cap open ios",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start:backend": "python3 backend/server.py",
+    "start": "python3 server.py",
+    "test": "node tests/test_capacitor_mobile_bridge.js"
   },
   "keywords": [],
   "author": "",

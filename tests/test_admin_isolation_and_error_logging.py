@@ -12,7 +12,10 @@ import unittest
 from datetime import datetime, timezone
 
 # scripts dizinini sys.path'e ekle
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'scripts'))
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(ROOT_DIR) if os.path.basename(ROOT_DIR) == 'tests' else ROOT_DIR
+sys.path.insert(0, os.path.join(PROJECT_ROOT, 'scripts'))
+sys.path.insert(0, PROJECT_ROOT)
 import admin_logger
 import send_reminders
 import send_hourly_admin_summary
