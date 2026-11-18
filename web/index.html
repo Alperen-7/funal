@@ -4004,6 +4004,8 @@ let currentPinAuthMethod = 'secq';
 let pendingEmailVerificationCode = null;
 let pendingEmailAddress = null;
 let pendingEmailExpiry = 0;
+let lastEmailOtpSentAt = 0;
+const EMAIL_OTP_COOLDOWN_MS = 60000;
 
 function openUserSettingsModal() {
   const activeUser = localStorage.getItem(AUTH_KEY);
@@ -4333,9 +4335,17 @@ function sendEmailVerificationCode() {
     return;
   }
 
+  const now = Date.now();
+  if (lastEmailOtpSentAt && (now - lastEmailOtpSentAt) < EMAIL_OTP_COOLDOWN_MS) {
+    const remainingSec = Math.ceil((EMAIL_OTP_COOLDOWN_MS - (now - lastEmailOtpSentAt)) / 1000);
+    toast(`Lütfen tekrar kod istemeden önce ${remainingSec} saniye bekleyin (Spam Koruması).`, 'err');
+    return;
+  }
+
+  lastEmailOtpSentAt = now;
   pendingEmailAddress = email;
   pendingEmailVerificationCode = String(Math.floor(100000 + Math.random() * 900000));
-  pendingEmailExpiry = Date.now() + (10 * 60 * 1000);
+  pendingEmailExpiry = now + (10 * 60 * 1000);
 
   const verifyBox = document.getElementById('settingsEmailVerifyBox');
   if (verifyBox) verifyBox.style.display = 'block';

@@ -672,17 +672,26 @@ async function sbSavePushSubscription(subscriptionPayload, username) {
       p256dh: subscriptionPayload.p256dh,
       auth: subscriptionPayload.auth,
       user_agent: subscriptionPayload.user_agent || '',
+      is_active: true,
+      platform: subscriptionPayload.platform || 'web',
       updated_at: new Date().toISOString()
     }], { onConflict: 'endpoint' });
   } catch(e) {}
 }
 
-async function sbDeletePushSubscription(username) {
+async function sbDeactivatePushSubscription(username) {
   const sb = await initSupabase();
   if (!sb || !username) return;
   try {
-    await sb.from('mt_push_subscriptions').delete().eq('username', username.toLowerCase());
+    await sb.from('mt_push_subscriptions').update({
+      is_active: false,
+      updated_at: new Date().toISOString()
+    }).eq('username', username.toLowerCase());
   } catch(e) {}
+}
+
+async function sbDeletePushSubscription(username) {
+  return sbDeactivatePushSubscription(username);
 }
 
 async function sbSyncUserEmail(username, email) {
