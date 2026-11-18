@@ -16,6 +16,11 @@ except ImportError:
     admin_logger = None
 
 try:
+    import fcm_push
+except ImportError:
+    fcm_push = None
+
+try:
     import requests
 except ImportError:
     requests = None
@@ -372,6 +377,45 @@ def send_email_reminder(recipient_email, bill, app_url):
         return False
 
 
+def is_fcm_subscription(subscription):
+    return bool(subscription.get('fcm_token')) or subscription.get('platform') in ('android', 'ios')
+
+
+def deactivate_push_subscription(subscription_id):
+    if not SUPABASE_URL or not SUPABASE_KEY or not subscription_id:
+        return False
+    url = f"{SUPABASE_URL}/rest/v1/mt_push_subscriptions?id=eq.{subscription_id}"
+    try:
+        api_patch(url, {'is_active': False, 'updated_at': datetime.now(timezone.utc).isoformat()})
+        logger.info(f"Geçersiz push aboneliği pasife alındı (is_active=False): {subscription_id}")
+        return True
+    except Exception as exc:
+        logger.error(f"Push aboneliği pasife alınamadı ({subscription_id}): {exc}")
+        return False
+
+
+def send_fcm_reminder(subscription, bill, app_url):
+    if not fcm_push:
+        logger.warning('fcm_push modülü bulunamadı, mobil bildirim atlanıyor.')
+        return False
+
+    title = bill.get('title') or bill.get('name') or 'Fatura'
+    amount_str = format_currency(bill.get('amount', 0))
+    status = fcm_push.send_fcm_notification(
+        subscription.get('fcm_token'),
+        f'⏰ Son Gün: {title}',
+        f'{amount_str} tutarındaki ödemenizin son günü. Detaylar için dokunun.',
+        {
+            'screen': 'bills',
+            'billId': bill.get('id'),
+            'url': f'{app_url}#tab-fin-bills',
+        },
+    )
+    if status == fcm_push.STATUS_UNREGISTERED:
+        deactivate_push_subscription(subscription.get('id'))
+    return status == fcm_push.STATUS_SENT
+
+
 def send_webpush_reminder(subscription, bill, app_url):
     if not webpush or not VAPID_PRIVATE_KEY:
         logger.warning('pywebpush veya VAPID_PRIVATE_KEY bulunamadı, Web Push atlanıyor.')
@@ -465,9 +509,12 @@ def run_reminders():
         logger.info(f"İşleniyor [{processed}/{len(bills)}]: {title} (Kullanıcı: {username})")
 
         push_sent = False
-        subscriptions = get_user_push_subscriptions(username)
+        subscriptions = [s for s in get_user_push_subscriptions(username) if s.get('is_active') is not False]
         for sub in subscriptions:
-            success = send_webpush_reminder(sub, bill, APP_URL)
+            if is_fcm_subscription(sub):
+                success = send_fcm_reminder(sub, bill, APP_URL)
+            else:
+                success = send_webpush_reminder(sub, bill, APP_URL)
             if success:
                 push_sent = True
 

@@ -18,3 +18,13 @@ package*.json
 .env*
 .DS_Store
 vercel.json
+
+www/
+out/
+android/
+ios/
+capacitor.config.ts
+tsconfig.json
+mobile.js.map
+*.md
+mobile_api.py

@@ -123,6 +123,13 @@ ALTER TABLE public.mt_push_subscriptions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "mt_push_subscriptions_all" ON public.mt_push_subscriptions FOR ALL USING (true) WITH CHECK (true);
 CREATE INDEX IF NOT EXISTS idx_push_user ON public.mt_push_subscriptions(username);
 
+ALTER TABLE public.mt_push_subscriptions ALTER COLUMN p256dh DROP NOT NULL;
+ALTER TABLE public.mt_push_subscriptions ALTER COLUMN auth DROP NOT NULL;
+ALTER TABLE public.mt_push_subscriptions ADD COLUMN IF NOT EXISTS platform TEXT DEFAULT 'web';
+ALTER TABLE public.mt_push_subscriptions ADD COLUMN IF NOT EXISTS fcm_token TEXT;
+ALTER TABLE public.mt_push_subscriptions ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_push_fcm_token ON public.mt_push_subscriptions(fcm_token) WHERE fcm_token IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS public.mt_error_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     level TEXT NOT NULL,

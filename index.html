@@ -10,6 +10,8 @@
   <meta name="description" content="Farklı marketlerdeki ürün fiyatlarını kaydedin ve karşılaştırın." />
   
   <script src="config.js"></script>
+  <script src="runtime-config.js"></script>
+  <script src="mobile.js"></script>
   <script src="bist_stocks.js"></script>
   <script src="https://unpkg.com/tesseract.js@4/dist/tesseract.min.js"></script>
   <link rel="stylesheet" href="style.css" />
@@ -183,7 +185,7 @@
   </div>
 </div>
 
-<header class="hdr">
+<header class="hdr pt-safe">
   <div class="hdr-in">
     <a class="logo" href="#" onclick="goHome();return false;" title="Ana Sayfa">
       <span class="logo-ico" id="hdrLogoIco">🏠</span>
@@ -232,7 +234,7 @@
   </div>
 </header>
 
-<main class="main">
+<main class="main pb-safe">
 
   <section class="sec-page active" id="sec-home">
     <div class="landing">
@@ -1938,6 +1940,7 @@ function checkAuth() {
       loadInvestTrades();
       if (typeof sbPullUserData === 'function') sbPullUserData(activeUser);
       goHome();
+      initNativePushOnLaunch();
     }
   } else {
     if (authScreen) authScreen.classList.remove('hidden');
@@ -2604,6 +2607,7 @@ function handleLogout() {
   if (cur) {
     recordLoginLog(cur, 'logout', 'Kullanıcı çıkış yaptı');
     if (typeof sbReleaseActiveSession === 'function') sbReleaseActiveSession(cur);
+    releaseNativePushOnLogout();
   }
   localStorage.removeItem(AUTH_KEY);
   localStorage.removeItem(SESSION_KEY);
@@ -4134,6 +4138,89 @@ function updateSettingsNotificationUI() {
   updatePushBtnState();
 }
 
+let nativePushInitFor = null;
+
+function isNativeApp() {
+  return typeof MyTakipMobile !== 'undefined' && MyTakipMobile.isNative === true;
+}
+
+function getNativePushCredentials() {
+  const activeUser = localStorage.getItem(AUTH_KEY);
+  if (!activeUser || typeof usersList === 'undefined') return null;
+  const user = usersList.find(u => u.username.toLowerCase() === activeUser.toLowerCase());
+  if (!user || !user.pinHash) return null;
+  return { username: getDbUsername(user.username), pinHash: user.pinHash };
+}
+
+function setWebPushPreference(enabled) {
+  const activeUser = localStorage.getItem(AUTH_KEY);
+  if (!activeUser) return;
+  loadUsers();
+  const user = usersList.find(u => u.username.toLowerCase() === activeUser.toLowerCase());
+  if (!user) return;
+  user.webPushEnabled = enabled;
+  user.webPushNotificationEnabled = enabled;
+  saveUsers();
+}
+
+async function enableNativePush() {
+  const creds = getNativePushCredentials();
+  if (!creds) {
+    toast('Oturum bilgisi bulunamadı. Lütfen tekrar giriş yapın.', 'err');
+    return false;
+  }
+  const result = await MyTakipMobile.registerPush(creds);
+  if (!result.ok) {
+    toast(result.message || 'Bildirimler açılamadı.', 'err');
+    updateSettingsNotificationUI();
+    return false;
+  }
+  setWebPushPreference(true);
+  toast('✓ Bildirimler başarıyla aktif edildi!', 'ok');
+  updateSettingsNotificationUI();
+  updatePushBtnState();
+  return true;
+}
+
+async function disableNativePush() {
+  const creds = getNativePushCredentials();
+  setWebPushPreference(false);
+  toast('Bildirimler kapatıldı (Pasif).', 'info');
+  updateSettingsNotificationUI();
+  updatePushBtnState();
+  if (creds) await MyTakipMobile.unregisterPush(creds);
+}
+
+function initNativePushOnLaunch() {
+  if (!isNativeApp()) return;
+  const activeUser = localStorage.getItem(AUTH_KEY);
+  if (!activeUser || activeUser.toLowerCase() === 'admin') return;
+  if (nativePushInitFor === activeUser) return;
+  const user = usersList.find(u => u.username.toLowerCase() === activeUser.toLowerCase());
+  if (!user || user.webPushNotificationEnabled === false) return;
+  const creds = getNativePushCredentials();
+  if (!creds) return;
+  nativePushInitFor = activeUser;
+  MyTakipMobile.registerPush(creds).then(result => {
+    if (result.ok) {
+      setWebPushPreference(true);
+      updateSettingsNotificationUI();
+      updatePushBtnState();
+    }
+  });
+}
+
+function releaseNativePushOnLogout() {
+  if (!isNativeApp()) return;
+  const creds = getNativePushCredentials();
+  nativePushInitFor = null;
+  if (!creds) {
+    MyTakipMobile.clearApiToken();
+    return;
+  }
+  MyTakipMobile.unregisterPush(creds).finally(() => MyTakipMobile.clearApiToken());
+}
+
 function toggleWebPushNotificationSetting(e) {
   const isChecked = e.target ? e.target.checked : Boolean(e);
   if (isChecked) {
@@ -4144,6 +4231,10 @@ function toggleWebPushNotificationSetting(e) {
 }
 
 async function disableWebPushNotifications() {
+  if (isNativeApp()) {
+    await disableNativePush();
+    return;
+  }
   const activeUser = localStorage.getItem(AUTH_KEY);
   if (activeUser) {
     loadUsers();
@@ -4172,6 +4263,9 @@ async function disableWebPushNotifications() {
 }
 
 async function enableWebPushNotifications() {
+  if (isNativeApp()) {
+    return enableNativePush();
+  }
   const activeUser = localStorage.getItem(AUTH_KEY);
   if (activeUser) {
     loadUsers();
@@ -8104,15 +8198,29 @@ async function sbSyncUserToCloud(user) {
   const sb = await initSupabase();
   if (!sb || !user || !user.username) return;
   const dbUser = getDbUsername(user.username);
+  const isAdm = Boolean(user.isAdmin || user.is_admin || user.role === 'admin' || user.username.toLowerCase() === 'admin');
+  const emailVerified = Boolean(user.isEmailVerified !== undefined ? user.isEmailVerified : user.emailVerified);
+  const emailEnabled = Boolean(user.emailNotificationEnabled !== undefined ? user.emailNotificationEnabled : (user.emailNotifications && emailVerified));
+  const baseRow = {
+    username: dbUser,
+    pin_hash: user.pinHash,
+    sec_q: user.secQ || '',
+    sec_a_hash: user.secAHash || '',
+    recovery_key_hash: user.recoveryKeyHash || '',
+    role: isAdm ? 'admin' : (user.role || 'user')
+  };
+  const extendedRow = Object.assign({}, baseRow, {
+    is_admin: isAdm,
+    email: (user.email || '').trim() || null,
+    email_notification_enabled: emailEnabled,
+    is_email_verified: emailVerified,
+    email_verified: emailVerified
+  });
   try {
-    await sb.from('mt_users').upsert([{
-      username: dbUser,
-      pin_hash: user.pinHash,
-      sec_q: user.secQ || '',
-      sec_a_hash: user.secAHash || '',
-      recovery_key_hash: user.recoveryKeyHash || '',
-      role: user.username.toLowerCase() === 'admin' ? 'admin' : (user.role || 'user')
-    }], { onConflict: 'username' });
+    const res = await sb.from('mt_users').upsert([extendedRow], { onConflict: 'username' });
+    if (res && res.error) {
+      await sb.from('mt_users').upsert([baseRow], { onConflict: 'username' });
+    }
   } catch(e) {}
 }
 
@@ -8127,15 +8235,26 @@ async function sbFetchUsersFromCloud() {
         const isLocalUser = (u.username || '').toLowerCase().startsWith('local_');
         return isLoc ? isLocalUser : !isLocalUser;
       });
-      return filtered.map(u => ({
-        username: u.username,
-        pinHash: u.pin_hash,
-        secQ: u.sec_q,
-        secAHash: u.sec_a_hash,
-        recoveryKeyHash: u.recovery_key_hash,
-        role: u.role,
-        createdAt: u.created_at ? new Date(u.created_at).getTime() : Date.now()
-      }));
+      return filtered.map(u => {
+        const emailVerified = Boolean(u.is_email_verified || u.email_verified);
+        const emailEnabled = Boolean(u.email_notification_enabled);
+        return {
+          username: u.username,
+          pinHash: u.pin_hash,
+          secQ: u.sec_q,
+          secAHash: u.sec_a_hash,
+          recoveryKeyHash: u.recovery_key_hash,
+          role: u.role,
+          isAdmin: Boolean(u.is_admin || u.role === 'admin'),
+          is_admin: Boolean(u.is_admin || u.role === 'admin'),
+          email: u.email || '',
+          emailVerified: emailVerified,
+          isEmailVerified: emailVerified,
+          emailNotifications: emailEnabled,
+          emailNotificationEnabled: emailEnabled,
+          createdAt: u.created_at ? new Date(u.created_at).getTime() : Date.now()
+        };
+      });
     }
   } catch(e) {}
   return null;

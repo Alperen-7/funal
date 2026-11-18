@@ -1,0 +1,1 @@
+window.MYTAKIP_RUNTIME = window.MYTAKIP_RUNTIME || { API_BASE_URL: '' };

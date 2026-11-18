@@ -9,3 +9,10 @@ scratch/
 security_remediation_test.js
 .git
 .gitignore
+
+www/
+out/
+android/
+ios/
+capacitor.config.ts
+*.md

@@ -10,6 +10,7 @@ import time
 import os
 import re
 import portfolio_engine
+import mobile_api
 
 try:
     import scripts.admin_logger as admin_logger
@@ -32,12 +33,41 @@ class MyTakipHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=DIRECTORY, **kwargs)
 
     def get_cors_origin(self):
-        origin = self.headers.get('Origin', '')
-        if origin:
-            parsed = urllib.parse.urlparse(origin)
-            if parsed.hostname in ('localhost', '127.0.0.1') or os.environ.get('PORT') or os.environ.get('RENDER') or os.environ.get('RAILWAY_ENVIRONMENT'):
-                return origin
-        return f"http://localhost:{PORT}"
+        return mobile_api.resolve_cors_origin(self.headers.get('Origin', ''))
+
+    def send_cors_headers(self):
+        for name, value in mobile_api.cors_headers(self.headers.get('Origin', '')):
+            self.send_header(name, value)
+
+    def read_request_body(self):
+        try:
+            length = int(self.headers.get('Content-Length') or 0)
+        except ValueError:
+            length = 0
+        if length <= 0:
+            return b''
+        return self.rfile.read(min(length, mobile_api.MAX_BODY_BYTES + 1))
+
+    def handle_mobile_api(self):
+        clean_path = urllib.parse.urlparse(self.path).path
+        if not mobile_api.is_mobile_path(clean_path):
+            self.send_json({'error': 'Not Found'}, status=404)
+            return
+        try:
+            body = self.read_request_body()
+            result = mobile_api.dispatch(self.command, clean_path, self.headers, body)
+            status, payload = result if result is not None else (404, {'error': 'Not Found'})
+            self.send_json(payload, status=status)
+        except Exception as e:
+            if admin_logger:
+                admin_logger.log_critical("INTERNAL_SERVER_ERROR_500", f"Mobil API 500 hatası: {e}", exc=e)
+            self.send_json({'error': 'Internal Server Error'}, status=500)
+
+    def do_POST(self):
+        self.handle_mobile_api()
+
+    def do_DELETE(self):
+        self.handle_mobile_api()
 
     def do_GET(self):
         try:
@@ -96,24 +126,19 @@ class MyTakipHandler(SimpleHTTPRequestHandler):
             self.send_json({'error': 'Internal Server Error', 'detail': str(e)}, status=500)
 
     def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', self.get_cors_origin())
-        self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        self.send_header('Vary', 'Origin')
+        self.send_response(204)
+        self.send_cors_headers()
+        self.send_header('Content-Length', '0')
         self.end_headers()
 
     def send_json(self, data, status=200):
         body = json.dumps(data, ensure_ascii=False).encode('utf-8')
         self.send_response(status)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
-        self.send_header('Access-Control-Allow-Origin', self.get_cors_origin())
-        self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Pragma, Cache-Control')
+        self.send_cors_headers()
         self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
         self.send_header('Pragma', 'no-cache')
         self.send_header('Expires', '0')
-        self.send_header('Vary', 'Origin')
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -142,6 +167,34 @@ def wsgi_app(environ, start_response):
         path = '/index.html'
 
     clean_path = path.split('?')[0]
+
+    method = environ.get('REQUEST_METHOD', 'GET').upper()
+    origin = environ.get('HTTP_ORIGIN', '')
+
+    if method == 'OPTIONS' and clean_path.startswith('/api/'):
+        start_response('204 No Content', mobile_api.cors_headers(origin) + [('Content-Length', '0')])
+        return [b'']
+
+    if mobile_api.is_mobile_path(clean_path):
+        try:
+            length = int(environ.get('CONTENT_LENGTH') or 0)
+        except ValueError:
+            length = 0
+        raw_body = environ['wsgi.input'].read(min(length, mobile_api.MAX_BODY_BYTES + 1)) if length > 0 else b''
+        status, payload = mobile_api.dispatch(
+            method, clean_path, {'Authorization': environ.get('HTTP_AUTHORIZATION')}, raw_body
+        )
+        body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+        try:
+            phrase = http.HTTPStatus(status).phrase
+        except ValueError:
+            phrase = 'Unknown'
+        start_response('%d %s' % (status, phrase), [
+            ('Content-Type', 'application/json; charset=utf-8'),
+            ('Cache-Control', 'no-store'),
+            ('Content-Length', str(len(body))),
+        ] + mobile_api.cors_headers(origin))
+        return [body]
 
     if clean_path == '/api/quotes':
         qs = environ.get('QUERY_STRING', '')
