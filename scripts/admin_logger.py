@@ -59,10 +59,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger('AdminLogger')
 
+try:
+    import scripts.email_service as email_service
+except ImportError:
+    try:
+        import email_service
+    except ImportError:
+        email_service = None
+
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '').rstrip('/')
 SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY') or os.environ.get('SUPABASE_KEY') or os.environ.get('SUPABASE_ANON_KEY', '')
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
-SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'MyTakip Sistem <onboarding@resend.dev>')
+SENDER_EMAIL = email_service.get_formatted_sender() if email_service else os.environ.get('SENDER_EMAIL', '')
 ADMIN_EMAIL_ENV = os.environ.get('ADMIN_EMAIL', '')
 
 try:
@@ -201,52 +209,20 @@ def get_admin_email():
     return 'admin@mytakip.local'
 
 
-# ── 3. RESEND API İLE E-POSTA GÖNDERME ──
+# ── 3. BİRLEŞİK MAİLER (SMTP / RESEND) İLE E-POSTA GÖNDERME ──
 def send_resend_email(recipient_email, subject, html_content):
-    if not RESEND_API_KEY:
-        logger.warning(f"RESEND_API_KEY tanımlı değil. E-posta uyarısı atlandı: '{subject}' -> {recipient_email}")
-        return False, "RESEND_API_KEY eksik"
+    if email_service:
+        is_ready, prov, diag = email_service.validate_provider_credentials()
+        if not is_ready:
+            logger.warning(f"E-posta sağlayıcısı ({prov}) yapılandırılmamış ({diag}). E-posta uyarısı atlandı: '{subject}' -> {recipient_email}")
+            return False, diag
+        return email_service.send_email(recipient_email, subject, html_content)
 
-    try:
-        if resend:
-            params = {
-                "from": SENDER_EMAIL,
-                "to": [recipient_email],
-                "subject": subject,
-                "html": html_content
-            }
-            res = resend.Emails.send(params)
-            msg_id = res.get('id') if isinstance(res, dict) else getattr(res, 'id', str(res))
-            logger.info(f"✓ Admin e-postası Resend üzerinden gönderildi: {recipient_email} (ID: {msg_id})")
-            return True, msg_id
-        else:
-            api_url = "https://api.resend.com/emails"
-            headers = {
-                "Authorization": f"Bearer {RESEND_API_KEY}",
-                "Content-Type": "application/json"
-            }
-            body = {
-                "from": SENDER_EMAIL,
-                "to": [recipient_email],
-                "subject": subject,
-                "html": html_content
-            }
-            if requests:
-                resp = requests.post(api_url, headers=headers, json=body, timeout=12)
-                resp.raise_for_status()
-                res = resp.json()
-            else:
-                req = urllib.request.Request(api_url, data=json.dumps(body).encode('utf-8'), headers=headers, method='POST')
-                with urllib.request.urlopen(req, timeout=12) as r:
-                    res = json.loads(r.read().decode('utf-8'))
+    logger.warning(f"email_service yüklenemedi. E-posta uyarısı atlandı: '{subject}' -> {recipient_email}")
+    return False, "email_service eksik"
 
-            msg_id = res.get('id', 'N/A')
-            logger.info(f"✓ Admin e-postası Resend REST API ile gönderildi: {recipient_email} (ID: {msg_id})")
-            return True, msg_id
 
-    except Exception as exc:
-        logger.error(f"❌ Resend API e-posta gönderim hatası: {exc}")
-        return False, str(exc)
+send_admin_email = send_resend_email
 
 
 # ── 4. LOG KAYDINI VERİTABANINA VE DOSYAYA KAYDETME ──

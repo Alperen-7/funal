@@ -16,6 +16,14 @@ except ImportError:
     admin_logger = None
 
 try:
+    import scripts.email_service as email_service
+except ImportError:
+    try:
+        import email_service
+    except ImportError:
+        email_service = None
+
+try:
     import fcm_push
 except ImportError:
     fcm_push = None
@@ -37,7 +45,7 @@ logger = logging.getLogger('RemindersCron')
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '').rstrip('/')
 SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY') or os.environ.get('SUPABASE_KEY', '')
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
-SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'MyTakip <onboarding@resend.dev>')
+SENDER_EMAIL = email_service.get_formatted_sender() if email_service else os.environ.get('SENDER_EMAIL', '')
 VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '')
 VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '')
 VAPID_CLAIMS_SUB = os.environ.get('VAPID_CLAIMS_SUB', 'mailto:admin@mytakip.local')
@@ -264,8 +272,13 @@ def send_email_reminder(recipient_email, bill, app_url):
         logger.warning(f'Geçersiz alıcı e-posta adresi: {recipient_email}')
         return False
 
-    if not RESEND_API_KEY:
-        logger.warning('RESEND_API_KEY bulunamadı, e-posta gönderimi atlanıyor.')
+    if email_service:
+        is_ready, prov, diag = email_service.validate_provider_credentials()
+        if not is_ready:
+            logger.warning(f'E-posta sağlayıcısı ({prov}) yapılandırılmamış ({diag}), e-posta gönderimi atlanıyor.')
+            return False
+    elif not RESEND_API_KEY:
+        logger.warning('E-posta servisi veya RESEND_API_KEY bulunamadı, e-posta gönderimi atlanıyor.')
         return False
 
     title = bill.get('title') or bill.get('name') or 'Fatura / Kredi Kartı'
@@ -337,44 +350,15 @@ def send_email_reminder(recipient_email, bill, app_url):
     </html>
     """
 
-    try:
-        if resend:
-            params = {
-                "from": SENDER_EMAIL,
-                "to": [recipient_email],
-                "subject": f"⏰ Yaklaşan Ödeme: {title} ({amount_str})",
-                "html": html_content
-            }
-            res = resend.Emails.send(params)
-            msg_id = res.get('id') if isinstance(res, dict) else res
-            logger.info(f"✓ Resend üzerinden hatırlatma e-postası iletildi: To: {recipient_email} - ID: {msg_id}")
-            return True
+    subject = f"⏰ Yaklaşan Ödeme: {title} ({amount_str})"
+    if email_service:
+        ok, info = email_service.send_email(recipient_email, subject, html_content)
+        if ok:
+            logger.info(f"✓ Hatırlatma e-postası iletildi: To: {recipient_email} ({info})")
         else:
-            api_url = "https://api.resend.com/emails"
-            headers = {
-                "Authorization": f"Bearer {RESEND_API_KEY}",
-                "Content-Type": "application/json"
-            }
-            body = {
-                "from": SENDER_EMAIL,
-                "to": [recipient_email],
-                "subject": f"⏰ Yaklaşan Ödeme: {title} ({amount_str})",
-                "html": html_content
-            }
-            if requests:
-                resp = requests.post(api_url, headers=headers, json=body, timeout=12)
-                resp.raise_for_status()
-                res = resp.json()
-            else:
-                req = urllib.request.Request(api_url, data=json.dumps(body).encode('utf-8'), headers=headers, method='POST')
-                with urllib.request.urlopen(req, timeout=12) as r:
-                    res = json.loads(r.read().decode('utf-8'))
-            msg_id = res.get('id', 'N/A')
-            logger.info(f"✓ Resend REST API ile hatırlatma e-postası iletildi: To: {recipient_email} - ID: {msg_id}")
-            return True
-    except Exception as exc:
-        logger.error(f"E-posta gönderiminde hata ({recipient_email}): {exc}")
-        return False
+            logger.error(f"E-posta gönderiminde hata ({recipient_email}): {info}")
+        return ok
+    return False
 
 
 def is_fcm_subscription(subscription):

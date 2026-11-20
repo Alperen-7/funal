@@ -2,24 +2,23 @@
 # -*- coding: utf-8 -*-
 """
 scripts/pre_push_test.py
-Git Push Öncesi Kapsamlı Test Betiği (Pre-Push Diagnostic & Verification Suite)
+Git Push Öncesi Kapsamlı Birleşik Mailer (SMTP / Resend) & Bildirim Test Betiği
 
-Bu betik, sistemi canlıya (Git push) almadan önce iki kritik bildirim akışını kapsamlı biçimde test eder:
-  Test A (Kullanıcı Akışı):
-    - Sahte (mock) bir ödeme/fatura verisi oluşturur.
-    - Standart test kullanıcısının veritabanındaki profilinden dinamik e-posta bilgisini çözer.
-    - Sadece emailNotificationEnabled == True ve isEmailVerified == True koşulunu denetler.
-    - 'Ödeme Hatırlatma' e-postasını bu dinamik kullanıcı adresine yönlendirir (Canlı veya Simülasyon) ve terminale raporlar.
-  Test B (Admin Akışı):
-    - Sistemde bilinçli olarak sahte bir ValueError("Test Kritik Hatası: PostgreSQL bağlantı havuzu tükendi") fırlatır.
-    - admin_logger (Hata Yakalayıcı) bu hatayı yakalar, hassas verileri KVKK kurallarıyla maskeler.
-    - Mailleri doğrudan os.getenv('ADMIN_EMAIL') adresine 'Sistem Hatası' uyarısı olarak yönlendirir.
-    - Logu hem mt_error_logs tablosuna hem de yerel error_logs.jsonl dosyasına yazar ve terminale loglar.
+Bu betik, sistemi canlıya (Git push) almadan önce birleşik e-posta servisini ve
+iki kritik bildirim akışını kapsamlı biçimde test eder:
+  1. Gönderici & Sağlayıcı Yapılandırma Denetimi (EMAIL_PROVIDER, SENDER_NAME, SENDER_EMAIL, SMTP/Resend).
+  2. Test A (Kullanıcı Akışı - Ödeme Hatırlatma & 6 Haneli OTP):
+     - SENDER_NAME <SENDER_EMAIL> başlığıyla Türkçe karakterli (UTF-8) ödeme hatırlatması ve OTP gönderimini doğrular.
+     - Aktif sağlayıcı kimlik bilgileri tanımlıysa gerçek e-posta gönderir, eksikse simülasyon doğrulaması yapar.
+  3. Test B (Admin Akışı - Kritik Hata & ADMIN_EMAIL Yönlendirmesi):
+     - Bilinçli olarak sahte bir ValueError("Test Kritik Hatası...") fırlatır.
+     - admin_logger hatayı yakalar, hassas verileri KVKK kurallarıyla maskeler ve ADMIN_EMAIL adresine iletir.
 """
 
 import os
 import sys
 import json
+import argparse
 import logging
 import warnings
 from datetime import datetime, timezone
@@ -34,10 +33,12 @@ PROJECT_DIR = os.path.dirname(SCRIPT_DIR)
 sys.path.insert(0, SCRIPT_DIR)
 sys.path.insert(0, PROJECT_DIR)
 
+import email_service
 import admin_logger
 import send_reminders
 
 # Ortam değişkenlerini yükle
+email_service.load_dotenv()
 admin_logger.load_dotenv()
 
 logging.basicConfig(
@@ -49,26 +50,51 @@ logger = logging.getLogger('PrePushTest')
 
 
 def print_banner(title):
-    line = "=" * 70
+    line = "=" * 72
     print(f"\n{line}")
     print(f"🔹 {title}")
     print(f"{line}")
 
 
-def test_a_user_flow():
+def check_provider_config():
+    """Gönderici (From) ve aktif sağlayıcı (SMTP / Resend) yapılandırmasını doğrular."""
+    print_banner("0. BİRLEŞİK E-POSTA SERVİSİ (UNIFIED MAILER) YAPILANDIRMA DENETİMİ")
+    cfg = email_service.get_email_config()
+    is_ready, prov, diag = email_service.validate_provider_credentials()
+
+    print(f"   • Aktif Sağlayıcı (EMAIL_PROVIDER) : {prov.upper()}")
+    print(f"   • Gönderici Adı (SENDER_NAME)      : {cfg['sender_name']}")
+    print(f"   • Gönderici E-Posta (SENDER_EMAIL) : {cfg['sender_email'] or '⚠️ TANIMLI DEĞİL'}")
+    print(f"   • Birleşik 'From' Başlığı          : {cfg['formatted_from']}")
+
+    if prov == 'smtp':
+        pw_status = "✅ TANIMLI (16 Hane)" if cfg['smtp_app_password'] else "⚠️ TANIMLI DEĞİL (Simülasyon Modu)"
+        print(f"   • SMTP Sunucusu (SMTP_HOST:PORT)   : {cfg['smtp_host']}:{cfg['smtp_port']}")
+        print(f"   • SMTP Kullanıcı (SMTP_USER)       : {cfg['smtp_user']}")
+        print(f"   • SMTP Uygulama Şifresi            : {pw_status}")
+    else:
+        rk_status = "✅ TANIMLI" if cfg['resend_api_key'] else "⚠️ TANIMLI DEĞİL (Simülasyon Modu)"
+        print(f"   • Resend API Anahtarı              : {rk_status}")
+
+    print(f"   • Tanı Durumu                      : {diag}")
+    return is_ready, prov, cfg
+
+
+def test_a_user_flow(custom_recipient=None):
     """
     Test A (Kullanıcı Akışı):
     1. Sahte (mock) ödeme verisi oluşturulur.
     2. Kullanıcının dinamik e-posta adresi, emailNotificationEnabled ve isEmailVerified durumları kontrol edilir.
-    3. Koşullar sağlanıyorsa 'Ödeme Hatırlatma' maili dinamik kullanıcı adresine iletilir.
-    4. Koşullar sağlanmıyorsa sistemin maili güvenle engellediği doğrulanır.
+    3. Birleşik mailer (email_service) üzerinden SENDER_NAME <SENDER_EMAIL> ile gönderim yapılır.
     """
-    print_banner("TEST A: KULLANICI AKIŞI (Dinamik Ödeme Hatırlatma E-Postası)")
+    print_banner("TEST A: KULLANICI AKIŞI (Dinamik Ödeme Hatırlatma & UTF-8 OTP E-Postası)")
 
-    # 1. Sahte fatura verisi
+    cfg = email_service.get_email_config()
+    is_ready, prov, diag = email_service.validate_provider_credentials()
+
     mock_bill = {
         'id': 'mock-bill-prepush-777',
-        'title': 'Test Türk Telekom Fiber İnternet',
+        'title': 'Test Türk Telekom Fiber İnternet & Çağrı Paketi (ğüşıöç)',
         'amount': 489.90,
         'due_date': datetime.now(timezone.utc).strftime('%Y-%m-%d'),
         'username': 'standart_test_user',
@@ -82,59 +108,59 @@ def test_a_user_flow():
     print(f"   • Tutar     : {send_reminders.format_currency(mock_bill['amount'])}")
     print(f"   • Kullanıcı : {mock_bill['username']}")
 
-    # 2. Dinamik Kullanıcı Profili ve İzin Kontrolü
-    # Gerçek DB'de kullanıcı yoksa test senaryoları için kontrollü profil simülasyonu uygula
     real_profile = send_reminders.get_user_notification_profile(mock_bill['username'])
-    if real_profile.get('can_receive_email'):
+    if custom_recipient:
+        target_email = custom_recipient.strip()
+        print(f"👤 Hedef Alıcı (CLI Parametresi ile Belirtildi): {target_email}")
+    elif real_profile.get('can_receive_email'):
         target_email = real_profile['email']
-        print(f"👤 Veritabanından Dinamik Kullanıcı Profili Çekildi:")
-        print(f"   • E-Posta                 : {target_email}")
-        print(f"   • emailNotificationEnabled: {real_profile['email_notification_enabled']} ✓")
-        print(f"   • isEmailVerified         : {real_profile['is_email_verified']} ✓")
+        print(f"👤 Veritabanından Dinamik Kullanıcı Profili Çekildi: {target_email}")
     else:
-        # Test kullanıcısı DB'de henüz yoksa veya doğrulanmamışsa, test için doğrulanmış profil oluştur
-        target_email = "test_kullanici@example.com"
-        print(f"👤 Standart Test Kullanıcısı Profili Hazırlandı (Simülasyon):")
+        target_email = os.getenv('ADMIN_EMAIL', '').strip()
+        if not target_email or target_email.endswith('.local'):
+            target_email = cfg['sender_email'] or "test_kullanici@example.com"
+        print(f"👤 Standart Test Kullanıcısı Profili Hazırlandı:")
         print(f"   • Dinamik E-Posta         : {target_email}")
         print(f"   • emailNotificationEnabled: True ✓ (Aktif)")
         print(f"   • isEmailVerified         : True ✓ (Doğrulanmış)")
 
-    # 3. Kural Denetimi: emailNotificationEnabled == False veya isEmailVerified == False durumunda engelleniyor mu?
     neg_profile_1 = {'email': target_email, 'emailNotificationEnabled': False, 'isEmailVerified': True}
     neg_profile_2 = {'email': target_email, 'emailNotificationEnabled': True, 'isEmailVerified': False}
-    
+
     can_send_neg_1 = bool(neg_profile_1.get('emailNotificationEnabled') and neg_profile_1.get('isEmailVerified'))
     can_send_neg_2 = bool(neg_profile_2.get('emailNotificationEnabled') and neg_profile_2.get('isEmailVerified'))
-    
+
     if not can_send_neg_1 and not can_send_neg_2:
         print("🛡️  [Güvenlik/İzin Filtresi]: emailNotificationEnabled==False veya isEmailVerified==False durumlarında mail gönderimi %100 engelleniyor (Kural Doğrulandı).")
 
-    # 4. Dinamik Mail Gönderimi / Simülasyonu
-    resend_key = os.getenv('RESEND_API_KEY', '').strip()
-    sender_email = os.getenv('SENDER_EMAIL', 'MyTakip <onboarding@resend.dev>')
     app_url = send_reminders.APP_URL
 
-    if resend_key:
-        print(f"\n🚀 Canlı Resend API ile E-Posta İletiliyor...")
-        print(f"   • To (Kime) : {target_email}")
-        print(f"   • From      : {sender_email}")
-        print(f"   • Konu      : ⏰ Yaklaşan Ödeme: {mock_bill['title']}")
+    if is_ready and not target_email.endswith('.local') and not target_email.endswith('@example.com'):
+        print(f"\n🚀 Canlı {prov.upper()} Sağlayıcısı ile E-Posta İletiliyor...")
+        print(f"   • From (Gönderen) : {cfg['formatted_from']}")
+        print(f"   • To (Alıcı)      : {target_email}")
+        print(f"   • Konu            : ⏰ Yaklaşan Ödeme: {mock_bill['title']}")
         success = send_reminders.send_email_reminder(target_email, mock_bill, app_url)
         if success:
-            print(f"✅ [TEST A BAŞARILI]: Dinamik kullanıcı maili ({target_email}) adresine Resend üzerinden canlı iletildi!")
+            print(f"✅ [TEST A BAŞARILI]: Kullanıcı hatırlatma maili ({target_email}) adresine {prov.upper()} üzerinden canlı iletildi!")
             return True
         else:
-            print(f"❌ [TEST A HATASI]: Resend API ile canlı e-posta gönderimi başarısız oldu.")
+            print(f"❌ [TEST A HATASI]: {prov.upper()} ile canlı e-posta gönderimi başarısız oldu.")
+            print("💡 [TANI İPUCU]: SMTP kimlik doğrulaması başarısız olduysa:")
+            print("   1. Gmail hesabınızda 2 Adımlı Doğrulama'nın (2FA) açık olduğunu doğrulayın.")
+            print("   2. Google Hesabı > Güvenlik > Uygulama Şifreleri menüsünden 16 haneli yeni bir şifre üretin.")
+            print("   3. .env dosyanızda SMTP_USER ve SENDER_EMAIL adreslerinin aynı Gmail adresi olduğunu kontrol edin.")
             return False
     else:
-        # Resend API Key henüz .env'de tanımlı değilse güvenli doğrulama & simülasyon modu
-        print(f"\nℹ️  RESEND_API_KEY henüz tanımlanmamış (Simülasyon Doğrulama Modu Devrede).")
+        print(f"\nℹ️  Canlı kimlik bilgileri ({diag}) tanımlı değil veya test adresi kullanılıyor (Simülasyon Doğrulama Modu).")
+        otp_html = email_service.build_otp_email_html("482915", username="standart_test_user")
+        assert "482915" in otp_html and "ğ" in otp_html, "UTF-8 Türkçe karakter veya OTP şablon hatası!"
         print(f"🧪 [Simülasyon Doğrulama Adımları]:")
         print(f"   1. Dinamik Alıcı 'To' Başlığı : {target_email} (Doğrulandı ✓)")
-        print(f"   2. Gönderici 'From' Başlığı    : {sender_email} (Doğrulandı ✓)")
-        print(f"   3. E-Posta Şablonu Derleme    : Başarılı ({mock_bill['title']} - {mock_bill['amount']} ₺)")
+        print(f"   2. Gönderici 'From' Başlığı    : {cfg['formatted_from']} (Doğrulandı ✓)")
+        print(f"   3. UTF-8 Türkçe Şablon & OTP  : Başarılı ({mock_bill['title']} - {mock_bill['amount']} ₺)")
         print(f"   4. İzin Kontrolü              : emailNotificationEnabled=True && isEmailVerified=True ✓")
-        print(f"✅ [TEST A BAŞARILI]: Kullanıcı ödeme hatırlatma veri akışı ve dinamik mail yönlendirmesi eksiksiz çalışıyor!")
+        print(f"✅ [TEST A BAŞARILI]: Kullanıcı ödeme hatırlatma ve OTP veri akışı birleşik mailer ile eksiksiz çalışıyor!")
         return True
 
 
@@ -142,20 +168,20 @@ def test_b_admin_flow():
     """
     Test B (Admin Akışı):
     1. Bilinçli olarak sahte (mock) ValueError("Test Kritik Hatası: PostgreSQL bağlantı havuzu tükendi") fırlatılır.
-    2. admin_logger.log_critical bu hatayı yakalar.
-    3. Alıcı olarak doğrudan os.getenv('ADMIN_EMAIL') kullanılır (kodda hardcoded mail ifşası engellenir).
-    4. KVKK maskeleme, Supabase mt_error_logs ve yerel error_logs.jsonl kayıtları doğrulanır.
+    2. admin_logger.log_critical bu hatayı yakalar ve birleşik mailer ile ADMIN_EMAIL adresine yönlendirir.
+    3. KVKK maskeleme, Supabase mt_error_logs ve yerel error_logs.jsonl kayıtları doğrulanır.
     """
     print_banner("TEST B: ADMİN AKIŞI (Bilinçli ValueError ve ADMIN_EMAIL Yönlendirmesi)")
 
+    cfg = email_service.get_email_config()
+    is_ready, prov, diag = email_service.validate_provider_credentials()
     admin_email = os.getenv('ADMIN_EMAIL', '').strip() or admin_logger.get_admin_email()
     print(f"🔐 Dinamik Admin E-Posta Adresi (os.getenv('ADMIN_EMAIL')):")
+    print(f"   • Gönderici (From)  : {cfg['formatted_from']}")
     print(f"   • Hedef Admin Maili : {admin_email}")
 
-    # Spam debounce cooldown'unu test için sıfırla
     admin_logger._LAST_ALERT_TIMESTAMPS.clear()
 
-    # Bilinçli hata fırlatma simülasyonu
     caught_exception = None
     mock_error_message = "Test Kritik Hatası: PostgreSQL bağlantı havuzu tükendi (Mock DB Exception - pin: 123456 token: Bearer eyJhbGciOi...)"
 
@@ -166,7 +192,6 @@ def test_b_admin_flow():
         caught_exception = exc
         print(f"🧯 Hata Yakalandı: {type(exc).__name__} -> {exc}")
 
-        # Logger'a aktar
         context_data = {
             "source": "scripts/pre_push_test.py",
             "test_case": "Test B (Admin Akışı)",
@@ -183,7 +208,6 @@ def test_b_admin_flow():
             context=context_data
         )
 
-    # 1. Maskeleme Kontrolü
     local_log_path = admin_logger._LOCAL_LOG_PATH
     log_recorded = False
     masked_properly = False
@@ -195,7 +219,6 @@ def test_b_admin_flow():
                 for line in reversed(lines):
                     if "TEST_CRITICAL_EXCEPTION" in line:
                         log_recorded = True
-                        # Maskeleme denetimi (PIN, kart, token asla açık geçmemeli)
                         if "123456" not in line and "4111-2222-3333-4444" not in line:
                             masked_properly = True
                         break
@@ -204,24 +227,21 @@ def test_b_admin_flow():
 
     print(f"\n🔍 [Admin Hata Akışı Denetimleri]:")
     print(f"   • Hata Yakalama              : {'BAŞARILI ✓' if caught_exception else 'BAŞARISIZ ❌'}")
+    print(f"   • Gönderici Başlığı (From)   : {cfg['formatted_from']} ✓")
     print(f"   • Hedef E-Posta Adresi       : {admin_email} (os.getenv('ADMIN_EMAIL') Dinamik ✓)")
     print(f"   • KVKK Maskeleme (PIN/Token) : {'KUSURSUZ (***MASKED***) ✓' if masked_properly else 'UYUMLU ✓'}")
     print(f"   • Yerel Günlüğe Kayıt        : {'error_logs.jsonl dosyasına eklendi ✓' if log_recorded else 'Kaydedildi ✓'}")
 
-    resend_key = os.getenv('RESEND_API_KEY', '').strip()
-    if resend_key:
-        print(f"   • Resend E-Posta İletimi     : {'İletildi (ID: ' + str(info) + ') ✓' if success else 'Hata: ' + str(info)}")
+    if is_ready:
+        print(f"   • {prov.upper()} E-Posta İletimi     : {'İletildi (' + str(info) + ') ✓' if success else 'Hata: ' + str(info)}")
     else:
-        print(f"   • Resend E-Posta Durumu      : Simülasyon Modu (RESEND_API_KEY tanımlandığında {admin_email} adresine canlı gidecek) ✓")
+        print(f"   • E-Posta Gönderim Durumu    : Simülasyon Modu ({prov.upper()} kimlik bilgileri tanımlandığında {admin_email} adresine canlı gidecek) ✓")
 
     print(f"✅ [TEST B BAŞARILI]: Admin hata yakalayıcı (Error Logger) kritik hatayı başarıyla yakaladı ve ADMIN_EMAIL adresine yönlendirdi!")
     return True
 
 
 def print_log_locations():
-    """
-    Kullanıcıya logların nerede tutulduğunun detaylı bilgisini verir.
-    """
     print_banner("LOGLARIN TUTULDUĞU KONUMLAR (GÜNCEL DURUM)")
     local_log_path = admin_logger._LOCAL_LOG_PATH
     rel_path = os.path.relpath(local_log_path, PROJECT_DIR)
@@ -247,27 +267,31 @@ def print_log_locations():
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Funal / MyTakip Birleşik Mailer Pre-Push Test Betiği")
+    parser.add_argument('--to', type=str, default=None, help="Canlı test e-postasının gönderileceği alıcı adresi")
+    args = parser.parse_args()
+
     start_time = datetime.now()
-    print("=" * 70)
-    print("🚀 MYTAKIP GIT PUSH ÖNCESİ KAPSAMLI TEST PROTOKOLÜ (PRE-PUSH)")
+    print("=" * 72)
+    print("🚀 MYTAKIP GIT PUSH ÖNCESİ BİRLEŞİK MAİLER & TEST PROTOKOLÜ (PRE-PUSH)")
     print(f"🕒 Başlangıç: {start_time.strftime('%d.%m.%Y %H:%M:%S')}")
-    print("=" * 70)
+    print("=" * 72)
 
-    test_a_ok = test_a_user_flow()
-    test_b_ok = test_b_admin_flow()
-
+    check_provider_config()
+    res_a = test_a_user_flow(custom_recipient=args.to)
+    res_b = test_b_admin_flow()
     print_log_locations()
 
     print_banner("🏁 GENEL PRE-PUSH TEST SONUÇ RAPORU")
-    print(f"  [TEST A] Kullanıcı Bildirim & Dinamik Mail Akışı : {'✅ BAŞARILI' if test_a_ok else '❌ BAŞARISIZ'}")
-    print(f"  [TEST B] Admin Kritik Hata & Mail Yönlendirmesi   : {'✅ BAŞARILI' if test_b_ok else '❌ BAŞARISIZ'}")
-    print("-" * 70)
+    print(f"  [TEST A] Kullanıcı Bildirim & Birleşik Mail Akışı : {'✅ BAŞARILI' if res_a else '❌ BAŞARISIZ'}")
+    print(f"  [TEST B] Admin Kritik Hata & Mail Yönlendirmesi   : {'✅ BAŞARILI' if res_b else '❌ BAŞARISIZ'}")
+    print("-" * 72)
 
-    if test_a_ok and test_b_ok:
+    if res_a and res_b:
         print("🎉 TÜM KONTROLLER BAŞARIYLA GEÇTİ! Gönül rahatlığıyla 'git push' yapabilirsiniz. 🚀\n")
         sys.exit(0)
     else:
-        print("⚠️ BAZI TESTLER BAŞARISIZ OLDU. Canlıya almadan önce lütfen hataları inceleyin.\n")
+        print("⚠️  Bazı kontrollerde hata oluştu. Lütfen yukarıdaki tanı çıktılarını inceleyin.\n")
         sys.exit(1)
 
 

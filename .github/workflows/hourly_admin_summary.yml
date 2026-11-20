@@ -28,8 +28,14 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_KEY }}
+          EMAIL_PROVIDER: ${{ secrets.EMAIL_PROVIDER }}
+          SENDER_NAME: ${{ secrets.SENDER_NAME }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL || 'MyTakip Sistem <onboarding@resend.dev>' }}
           ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
         run: |
           python scripts/send_hourly_admin_summary.py

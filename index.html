@@ -4468,6 +4468,15 @@ function sendEmailVerificationCode() {
   const verifyBox = document.getElementById('settingsEmailVerifyBox');
   if (verifyBox) verifyBox.style.display = 'block';
 
+  const activeUser = localStorage.getItem(AUTH_KEY) || '';
+  if (typeof fetch === 'function') {
+    fetch('/api/email/send-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code: pendingEmailVerificationCode, username: activeUser })
+    }).catch(() => {});
+  }
+
   toast(`✓ Doğrulama kodu gönderildi! Kodunuz: ${pendingEmailVerificationCode}`, 'ok');
 }
 

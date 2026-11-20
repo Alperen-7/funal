@@ -29,6 +29,14 @@ except ImportError:
     except ImportError:
         admin_logger = None
 
+try:
+    import scripts.email_service as email_service
+except ImportError:
+    try:
+        import email_service
+    except ImportError:
+        email_service = None
+
 PORT = int(os.environ.get('PORT', 8765))
 WEB_DIR = os.path.join(PROJECT_ROOT, 'web')
 DIRECTORY = WEB_DIR if os.path.isdir(WEB_DIR) else PROJECT_ROOT
@@ -91,6 +99,25 @@ class MyTakipHandler(SimpleHTTPRequestHandler):
                 return
             except Exception as e:
                 self.send_json({'error': str(e)}, status=400)
+                return
+        if clean_path == '/api/email/send-otp':
+            try:
+                body = self.read_request_body()
+                payload = json.loads(body.decode('utf-8')) if body else {}
+                recipient = (payload.get('email') or '').strip()
+                otp_code = (payload.get('code') or '').strip()
+                username = (payload.get('username') or '').strip()
+                if not recipient or '@' not in recipient or not otp_code:
+                    self.send_json({'success': False, 'error': 'Geçerli e-posta ve OTP kodu gereklidir'}, status=400)
+                    return
+                if not email_service:
+                    self.send_json({'success': False, 'error': 'E-posta servisi bulunamadı'}, status=500)
+                    return
+                ok, info = email_service.send_otp_verification_email(recipient, otp_code, username=username)
+                self.send_json({'success': ok, 'detail': info}, status=200 if ok else 502)
+                return
+            except Exception as e:
+                self.send_json({'success': False, 'error': str(e)}, status=400)
                 return
         self.handle_mobile_api()
 
@@ -293,6 +320,30 @@ def wsgi_app(environ, start_response):
             ('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0'),
             ('Pragma', 'no-cache'),
             ('Expires', '0'),
+            ('Content-Length', str(len(body)))
+        ])
+        return [body]
+
+    if clean_path == '/api/email/send-otp':
+        try:
+            length = int(environ.get('CONTENT_LENGTH') or 0)
+        except ValueError:
+            length = 0
+        raw_body = environ['wsgi.input'].read(length) if length > 0 else b''
+        payload = json.loads(raw_body.decode('utf-8')) if raw_body else {}
+        recipient = (payload.get('email') or '').strip()
+        otp_code = (payload.get('code') or '').strip()
+        username = (payload.get('username') or '').strip()
+        if email_service and recipient and '@' in recipient and otp_code:
+            ok, info = email_service.send_otp_verification_email(recipient, otp_code, username=username)
+            res_payload = {'success': ok, 'detail': info}
+        else:
+            res_payload = {'success': False, 'error': 'Geçersiz OTP isteği veya servis eksik'}
+        body = json.dumps(res_payload, ensure_ascii=False).encode('utf-8')
+        start_response('200 OK', [
+            ('Content-Type', 'application/json; charset=utf-8'),
+            ('Access-Control-Allow-Origin', '*'),
+            ('Cache-Control', 'no-store'),
             ('Content-Length', str(len(body)))
         ])
         return [body]
