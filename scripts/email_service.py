@@ -81,6 +81,8 @@ def get_email_config():
     """Güncel ortam değişkenlerinden e-posta yapılandırmasını okur."""
     load_dotenv()
     provider = os.environ.get('EMAIL_PROVIDER', 'smtp').strip().lower() or 'smtp'
+    raw_enabled = os.environ.get('EMAIL_ENABLED', 'false').strip().lower()
+    email_enabled = raw_enabled in ('true', '1', 'yes', 'aktif', 'on') and provider not in ('disabled', 'passive', 'pasif', 'none', 'off')
     sender_name = os.environ.get('SENDER_NAME', 'Funal Bildirim').strip() or 'Funal Bildirim'
     raw_sender_email = os.environ.get('SENDER_EMAIL', '').strip()
 
@@ -107,6 +109,7 @@ def get_email_config():
     resend_api_key = os.environ.get('RESEND_API_KEY', '').strip()
 
     return {
+        'enabled': email_enabled,
         'provider': provider,
         'sender_name': sender_name,
         'sender_email': sender_email,
@@ -117,6 +120,11 @@ def get_email_config():
         'smtp_app_password': smtp_app_password,
         'resend_api_key': resend_api_key
     }
+
+
+def is_email_enabled():
+    """E-posta gönderim modülünün aktif olup olmadığını döndürür."""
+    return get_email_config()['enabled']
 
 
 def get_formatted_sender():
@@ -133,6 +141,9 @@ def validate_provider_credentials(provider=None):
     """
     cfg = get_email_config()
     active_provider = (provider or cfg['provider']).lower()
+
+    if not cfg['enabled']:
+        return False, 'pasif', "E-posta gönderimi pasif modda (EMAIL_ENABLED=false)"
 
     if not cfg['sender_email'] or '@' not in cfg['sender_email']:
         return False, active_provider, "SENDER_EMAIL tanımlanmamış veya geçersiz e-posta formatında."
@@ -290,12 +301,16 @@ def send_via_resend(recipient_email, subject, html_body, cfg=None):
 def send_email(recipient_email, subject, html_body, provider=None):
     """
     Tüm sistem için tek merkezli (unified) e-posta gönderim fonksiyonu.
-    EMAIL_PROVIDER ayarına göre 'smtp' veya 'resend' üzerinden gönderim yapar.
+    EMAIL_ENABLED=false olduğunda e-posta gönderimini güvenli biçimde pasife alır.
     """
     if not recipient_email or '@' not in str(recipient_email):
         return False, f"Geçersiz alıcı e-posta adresi: {recipient_email}"
 
     cfg = get_email_config()
+    if not cfg['enabled'] and provider is None:
+        logger.info(f"ℹ️ [E-Posta Pasif]: EMAIL_ENABLED=false olduğu için gönderim atlandı -> {recipient_email} ('{subject}')")
+        return False, "E-posta gönderimi pasif modda (EMAIL_ENABLED=false)"
+
     active_provider = (provider or cfg['provider']).strip().lower()
 
     if active_provider == 'resend':

@@ -28,6 +28,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_KEY }}
+          EMAIL_ENABLED: ${{ secrets.EMAIL_ENABLED || 'false' }}
           EMAIL_PROVIDER: ${{ secrets.EMAIL_PROVIDER }}
           SENDER_NAME: ${{ secrets.SENDER_NAME }}
           SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
