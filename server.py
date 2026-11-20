@@ -10,8 +10,6 @@ import time
 import sys
 import os
 import re
-import portfolio_engine
-import mobile_api
 
 BACKEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'backend')
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -19,6 +17,9 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 if os.path.isdir(BACKEND_DIR) and BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
+
+import portfolio_engine
+import mobile_api
 
 try:
     import scripts.admin_logger as admin_logger
