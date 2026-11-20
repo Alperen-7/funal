@@ -37,5 +37,6 @@ jobs:
           VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
           VAPID_CLAIMS_SUB: ${{ secrets.VAPID_CLAIMS_SUB }}
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
           APP_URL: ${{ secrets.APP_URL }}
         run: python scripts/send_reminders.py

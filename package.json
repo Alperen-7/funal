@@ -4,7 +4,7 @@
   "description": "",
   "main": "app.js",
   "scripts": {
-    "build": "rm -f _redirects && echo 'Static build complete'",
+    "build": "node scripts/build_www.js && rm -f _redirects && echo 'Static build complete'",
     "build:web": "node scripts/build_www.js",
     "cap:sync": "npm run build:web && cap sync",
     "mobile:android": "npm run cap:sync && cap open android",

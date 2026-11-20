@@ -15,7 +15,11 @@ const WEB_FILES = [
   'style.css',
   'config.js',
   'bist_stocks.js',
+  'bist_stocks.json',
   'mobile.js',
+  'supabase_sync.js',
+  'sw.js',
+  'app.js',
 ];
 
 function resolveApiBaseUrl() {
@@ -52,6 +56,7 @@ function build() {
     }
 
     fs.writeFileSync(path.join(dir, 'runtime-config.js'), runtime, 'utf8');
+    fs.writeFileSync(path.join(dir, '.nojekyll'), '', 'utf8');
   }
 
   console.log('out/ ve www/ hazir: ' + WEB_FILES.length + ' dosya + runtime-config.js');

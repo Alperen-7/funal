@@ -88,19 +88,21 @@ _LOCAL_LOG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(_
 
 # ── 1. KVKK & HASSAS VERİ MASKELEME ──
 SENSITIVE_KEY_PATTERNS = re.compile(
-    r'(pin|password|passwd|sifre|secret|token|apikey|api_key|authorization|auth|recovery|kurtarma|bearer|private_key|anon_key|service_role_key)',
+    r'(pin|password|passwd|sifre|secret|token|apikey|api_key|authorization|auth|recovery|kurtarma|bearer|private_key|anon_key|service_role_key|email|eposta|ip_address|client_ip|^ip$)',
     re.IGNORECASE
 )
 
 CREDIT_CARD_REGEX = re.compile(r'\b(?:\d[ -]*?){13,16}\b')
 BEARER_REGEX = re.compile(r'Bearer\s+[A-Za-z0-9\-\._~\+\/]+=*', re.IGNORECASE)
 PIN_ASSIGN_REGEX = re.compile(r'(pin|password|sifre|secret|token)\s*[:=]\s*[\'"]?([^\'",\s]+)[\'"]?', re.IGNORECASE)
+EMAIL_REGEX = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b')
+IPV4_REGEX = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
 
 
 def mask_sensitive_data(data):
     """
     KVKK ve güvenlik ilkeleri gereğince şifre, PIN, API anahtarı, kurtarma anahtarı,
-    token ve kredi kartı numaralarını otomatik olarak maskeler.
+    token, e-posta, IP adresi ve kredi kartı numaralarını otomatik olarak maskeler.
     """
     if data is None:
         return data
@@ -139,6 +141,12 @@ def mask_sensitive_text(text):
 
     # PIN ve Parola atamalarını maskeleme (örn: pin: 123456 -> pin: ***MASKED***)
     text = PIN_ASSIGN_REGEX.sub(r'\1: ***MASKED***', text)
+
+    # E-posta adresi maskeleme
+    text = EMAIL_REGEX.sub('***@***.***', text)
+
+    # IPv4 adresi maskeleme
+    text = IPV4_REGEX.sub('***.***.***.***', text)
 
     # VAPID / Supabase anahtarları uzun hash maskeleme (eyJhbGciOi... vb.)
     text = re.sub(r'sb_publishable_[A-Za-z0-9_\-]+', 'sb_publishable_***MASKED***', text)

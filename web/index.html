@@ -4078,7 +4078,7 @@ async function requestNotificationPermission() {
   if (Notification.permission === 'granted') {
     if ('serviceWorker' in navigator) {
       try {
-        const reg = await navigator.serviceWorker.register('/sw.js');
+        const reg = await navigator.serviceWorker.register('./sw.js');
         await navigator.serviceWorker.ready;
         reg.showNotification('MyTakip Bildirim Testi 🔔', {
           body: 'Bildirimleriniz aktif! Son ödeme gününde burada görünecek.',
@@ -4100,7 +4100,7 @@ async function requestNotificationPermission() {
     if (perm === 'granted') {
       if ('serviceWorker' in navigator) {
         try {
-          const reg = await navigator.serviceWorker.register('/sw.js');
+          const reg = await navigator.serviceWorker.register('./sw.js');
           await navigator.serviceWorker.ready;
           reg.showNotification('MyTakip Bildirim Testi 🔔', {
             body: 'Tebrikler! Bildirimler başarıyla açıldı.',
@@ -4407,7 +4407,7 @@ async function enableWebPushNotifications() {
   }
   if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
     try {
-      const reg = await navigator.serviceWorker.register('/sw.js');
+      const reg = await navigator.serviceWorker.register('./sw.js');
       await navigator.serviceWorker.ready;
     } catch(e) {}
   }

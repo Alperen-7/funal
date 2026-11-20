@@ -5,8 +5,12 @@ scratch/
 test_*.js
 security_remediation_test.js
 .env
+.env.*
+!.env.example
 .env.local
 .env*.local
+*.pem
+*.key
 secrets/
 config/supabase.js
 supabase_secrets.js

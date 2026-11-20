@@ -560,6 +560,7 @@ def test_scenario_4_admin_error_logging_and_kvkk():
     dirty_payload = {
         'username': 'ahmet_yilmaz',
         'email': 'ahmet@example.com',
+        'ip_address': '192.168.1.45',
         'pin': '852963',
         'pin_hash': 'sha256_mock_hash_value',
         'password': 'SuperSecretPassword123!',
@@ -569,7 +570,8 @@ def test_scenario_4_admin_error_logging_and_kvkk():
         'card_number': '4532 1234 5678 9012',
         'nested_data': {
             'apiKey': 're_123456789abcdef',
-            'authorization': 'Bearer secret-jwt-token-value'
+            'authorization': 'Bearer secret-jwt-token-value',
+            'client_ip': '88.241.55.12'
         }
     }
 
@@ -587,6 +589,10 @@ def test_scenario_4_admin_error_logging_and_kvkk():
         kvkk_violations.append('token açık kaldı')
     if masked.get('recovery_key') != '***MASKED_SENSITIVE***':
         kvkk_violations.append('recovery_key açık kaldı')
+    if masked.get('email') != '***MASKED_SENSITIVE***':
+        kvkk_violations.append('email açık kaldı')
+    if masked.get('ip_address') != '***MASKED_SENSITIVE***':
+        kvkk_violations.append('ip_address açık kaldı')
     if '4532' in str(masked.get('card_number')):
         kvkk_violations.append('Kredi kartı numarası sızdı')
 
@@ -595,19 +601,21 @@ def test_scenario_4_admin_error_logging_and_kvkk():
         kvkk_violations.append('İç içe apiKey açık kaldı')
     if nested.get('authorization') != '***MASKED_SENSITIVE***':
         kvkk_violations.append('İç içe authorization açık kaldı')
+    if nested.get('client_ip') != '***MASKED_SENSITIVE***':
+        kvkk_violations.append('İç içe client_ip açık kaldı')
 
     if not kvkk_violations:
-        pass_msg("Tüm hassas anahtarlar (PIN, şifre, token, kart, apikey) tamamen maskelendi.")
+        pass_msg("Tüm hassas anahtarlar (PIN, şifre, token, e-posta, IP, kart, apikey) tamamen maskelendi.")
         pass_msg("KVKK / GDPR gizlilik ve güvenlik uyumluluğu %100 doğrulandı.")
     else:
         fail_msg(f"KVKK İHLALİ TESPİT EDİLDİ: {', '.join(kvkk_violations)}")
         success = False
 
-    raw_error_text = "Hata oluştu: pin: 123456 girildi, kart: 5526 1234 5678 9010 ile Bearer eyJhbGciOi... kullanıldı."
+    raw_error_text = "Hata oluştu: pin: 123456 girildi, mail: test_user@domain.com, IP: 185.12.34.56, kart: 5526 1234 5678 9010 ile Bearer eyJhbGciOi... kullanıldı."
     masked_text = admin_logger.mask_sensitive_text(raw_error_text)
 
-    if '123456' not in masked_text and '5526' not in masked_text and 'eyJhbGciOi' not in masked_text:
-        pass_msg("Serbest metin (String/Stack Trace) içindeki PIN, kart ve token değerleri başarıyla maskelendi.")
+    if '123456' not in masked_text and '5526' not in masked_text and 'eyJhbGciOi' not in masked_text and 'test_user@domain.com' not in masked_text and '185.12.34.56' not in masked_text:
+        pass_msg("Serbest metin (String/Stack Trace) içindeki PIN, e-posta, IP, kart ve token değerleri başarıyla maskelendi.")
     else:
         fail_msg(f"Metin içi maskeleme başarısız: {masked_text}")
         success = False
