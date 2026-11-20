@@ -14,6 +14,7 @@ import urllib.request
 import urllib.error
 import urllib.parse
 from datetime import datetime
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 import warnings
 
 # macOS LibreSSL uyarılarını bastır
@@ -573,3 +574,294 @@ def fetch_batch_quotes(symbols, force_refresh=False):
             results[s] = quote
 
     return results
+
+# ======================================================================
+# PROFIT & LOSS (P&L) CALCULATION ENGINE (WEIGHTED AVERAGE COST - WAC)
+# ======================================================================
+
+EPSILON_DECIMAL = Decimal('1e-8')
+
+def to_decimal(val, default='0'):
+    """Safe Decimal conversion helper."""
+    if val is None:
+        return Decimal(default)
+    if isinstance(val, Decimal):
+        return val
+    try:
+        s = str(val).strip()
+        if not s or s.lower() in ['nan', 'none', 'null', 'undefined']:
+            return Decimal(default)
+        return Decimal(s)
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal(default)
+
+def round_cur(val, decimals=2):
+    """Round Decimal or float using standard financial ROUND_HALF_UP."""
+    if val is None:
+        return None
+    d = to_decimal(val)
+    q = Decimal('10') ** -decimals
+    return d.quantize(q, rounding=ROUND_HALF_UP)
+
+def normalize_currency(amount, from_curr, to_curr='TRY', usd_try_rate=None):
+    """
+    Converts amount from from_curr to to_curr using live or provided USD/TRY rate.
+    Guarantees all calculations happen in the exact same target currency (TRY).
+    """
+    d_amount = to_decimal(amount)
+    from_curr = (from_curr or 'TRY').upper().strip()
+    to_curr = (to_curr or 'TRY').upper().strip()
+
+    if from_curr == to_curr:
+        return d_amount
+
+    if usd_try_rate is None or to_decimal(usd_try_rate) <= 0:
+        usd_try_rate = to_decimal(get_usd_try_rate())
+    else:
+        usd_try_rate = to_decimal(usd_try_rate)
+
+    if from_curr == 'USD' and to_curr == 'TRY':
+        return d_amount * usd_try_rate
+    elif from_curr == 'TRY' and to_curr == 'USD':
+        return (d_amount / usd_try_rate) if usd_try_rate > 0 else d_amount
+
+    return d_amount
+
+def calculate_asset_position(symbol, transactions, live_price_data=None, live_usd_try_rate=None):
+    """
+    Single source of truth for an asset position's P&L math (Weighted Average Cost):
+    Calculates position strictly from its immutable transaction history in chronological order.
+
+    Rules:
+    - On BUY:
+        newTotalCost = currentTotalCost + (buyQty * buyPrice)
+        newQty = currentQty + buyQty
+        avgCost = newTotalCost / newQty
+    - On SELL:
+        avgCost remains unchanged;
+        reduce currentQty by sellQty (min(sellQty, currentQty));
+        reduce currentTotalCost proportionally (remainingQty * avgCost);
+        track realizedPnL = (sellPrice - avgCost) * sellQty separately;
+        do NOT mix realized P&L into active position's unrealized cost basis.
+    - Epsilon dust threshold:
+        remainingQty <= 1e-8 treated as 0 (position closed).
+    - Unrealized P&L strictly for active positions:
+        costBasis = remainingQty * avgCost
+        if live price available:
+            currentValue = remainingQty * livePrice
+            unrealizedPnL = currentValue - costBasis
+            unrealizedPnLPercent = (unrealizedPnL / costBasis) * 100 if costBasis > 0 else 0
+        else:
+            price_unavailable = True, currentValue = None, unrealizedPnL = None
+    """
+    clean_sym = clean_bist_symbol(symbol) or str(symbol).upper().strip()
+
+    # Sort transactions chronologically
+    sorted_trades = sorted(
+        transactions or [],
+        key=lambda t: (
+            str(t.get('date') or ''),
+            int(t.get('createdAt') or 0),
+            int(t.get('id') or 0) if isinstance(t.get('id'), int) else 0
+        )
+    )
+
+    current_qty = Decimal('0')
+    current_total_cost = Decimal('0')
+    avg_cost = Decimal('0')
+    total_realized_pnl = Decimal('0')
+    total_dividend = Decimal('0')
+    name = clean_sym
+    trades_count = 0
+
+    for t in sorted_trades:
+        if not t:
+            continue
+        t_raw_sym = str(t.get('symbol') or '')
+        t_sym = clean_bist_symbol(t_raw_sym) or t_raw_sym.upper().strip()
+        if t_sym and t_sym != clean_sym:
+            continue
+        if t.get('name'):
+            name = t.get('name')
+
+        raw_type = str(t.get('type') or '').lower().strip()
+        raw_qty = t.get('qty', t.get('quantity', 0))
+        trade_qty = to_decimal(raw_qty)
+        raw_price = t.get('price', 0)
+        trade_price = to_decimal(raw_price)
+        trade_curr = (t.get('currency') or 'TRY').upper().strip()
+        trade_rate = t.get('usd_try_rate') or live_usd_try_rate
+
+        # Normalize price to TRY
+        price_try = normalize_currency(trade_price, trade_curr, 'TRY', trade_rate)
+
+        if raw_type in ['alis', 'buy']:
+            if trade_qty <= 0:
+                continue
+            new_total_cost = current_total_cost + (trade_qty * price_try)
+            new_qty = current_qty + trade_qty
+            current_qty = new_qty
+            current_total_cost = new_total_cost
+            avg_cost = (current_total_cost / current_qty) if current_qty > 0 else price_try
+            trades_count += 1
+
+        elif raw_type in ['satis', 'sell']:
+            if trade_qty <= 0 or current_qty <= 0:
+                continue
+            effective_sell_qty = min(trade_qty, current_qty)
+            # Realized P&L = (sellPrice - avgCost) * sellQty
+            realized = (price_try - avg_cost) * effective_sell_qty
+            total_realized_pnl += realized
+
+            remaining_qty = current_qty - effective_sell_qty
+            current_qty = remaining_qty
+            # On SELL: avgCost remains strictly unchanged!
+            # currentTotalCost reduced proportionally (remainingQty * avgCost)
+            current_total_cost = current_qty * avg_cost
+            trades_count += 1
+
+        elif raw_type in ['temettu', 'dividend']:
+            div_total = to_decimal(t.get('total', t.get('amount', 0)))
+            div_try = normalize_currency(div_total, trade_curr, 'TRY', trade_rate)
+            total_dividend += div_try
+            trades_count += 1
+
+    # Apply epsilon threshold for zero-quantity dust
+    if current_qty <= EPSILON_DECIMAL:
+        current_qty = Decimal('0')
+        current_total_cost = Decimal('0')
+        avg_cost = Decimal('0')
+
+    is_active = (current_qty > EPSILON_DECIMAL)
+    cost_basis = current_total_cost
+
+    # Live price handling
+    price_unavailable = True
+    live_price_try = None
+    current_value = None
+    unrealized_pnl = None
+    unrealized_pnl_percent = None
+
+    if is_active:
+        if live_price_data is not None:
+            if isinstance(live_price_data, dict):
+                success = live_price_data.get('success', True)
+                p_val = live_price_data.get('price')
+                p_curr = (live_price_data.get('currency') or 'TRY').upper().strip()
+                if p_val is not None and to_decimal(p_val) > 0 and success:
+                    raw_p = to_decimal(p_val)
+                    live_price_try = normalize_currency(raw_p, p_curr, 'TRY', live_usd_try_rate)
+                    price_unavailable = False
+            elif isinstance(live_price_data, (int, float, Decimal, str)):
+                p_dec = to_decimal(live_price_data)
+                if p_dec > 0:
+                    live_price_try = p_dec
+                    price_unavailable = False
+
+        if not price_unavailable and live_price_try is not None:
+            current_value = current_qty * live_price_try
+            unrealized_pnl = current_value - cost_basis
+            unrealized_pnl_percent = ((unrealized_pnl / cost_basis) * Decimal('100')) if cost_basis > 0 else Decimal('0')
+    else:
+        # Fully closed position
+        price_unavailable = False
+        current_value = Decimal('0')
+        unrealized_pnl = Decimal('0')
+        unrealized_pnl_percent = Decimal('0')
+
+    return {
+        'symbol': clean_sym,
+        'name': name,
+        'quantity': float(current_qty),
+        'quantity_decimal': current_qty,
+        'avg_cost': float(round_cur(avg_cost, 4)) if avg_cost > 0 else 0.0,
+        'cost_basis': float(round_cur(cost_basis, 2)),
+        'live_price': float(round_cur(live_price_try, 2)) if live_price_try is not None else None,
+        'price_unavailable': price_unavailable,
+        'current_value': float(round_cur(current_value, 2)) if current_value is not None else None,
+        'unrealized_pnl': float(round_cur(unrealized_pnl, 2)) if unrealized_pnl is not None else None,
+        'unrealized_pnl_percent': float(round_cur(unrealized_pnl_percent, 2)) if unrealized_pnl_percent is not None else None,
+        'total_realized_pnl': float(round_cur(total_realized_pnl, 2)),
+        'total_dividend': float(round_cur(total_dividend, 2)),
+        'is_active': is_active,
+        'trades_count': trades_count
+    }
+
+def calculate_portfolio_pnl(transactions, market_quotes=None, usd_try_rate=None):
+    """
+    Computes overall portfolio P&L across all assets strictly using Weighted Average Cost
+    from immutable transactions.
+    """
+    market_quotes = market_quotes or {}
+    trades_by_sym = {}
+
+    for t in (transactions or []):
+        if not t or not t.get('symbol'):
+            continue
+        raw_sym = str(t.get('symbol'))
+        sym = clean_bist_symbol(raw_sym) or raw_sym.upper().strip()
+        if sym not in trades_by_sym:
+            trades_by_sym[sym] = []
+        trades_by_sym[sym].append(t)
+
+    all_positions = {}
+    active_positions = []
+
+    for sym, trades in trades_by_sym.items():
+        quote = market_quotes.get(sym) or market_quotes.get(f"BIST_{sym}")
+        pos = calculate_asset_position(sym, trades, live_price_data=quote, live_usd_try_rate=usd_try_rate)
+        all_positions[sym] = pos
+        if pos['is_active']:
+            active_positions.append(pos)
+
+    # Sort active positions by cost_basis descending
+    active_positions.sort(key=lambda p: p['cost_basis'], reverse=True)
+
+    total_cost = sum(Decimal(str(p['cost_basis'])) for p in active_positions)
+    total_realized = sum(Decimal(str(p['total_realized_pnl'])) for p in all_positions.values())
+    total_dividend = sum(Decimal(str(p['total_dividend'])) for p in all_positions.values())
+
+    priced_positions = [p for p in active_positions if not p['price_unavailable']]
+    unpriced_positions = [p for p in active_positions if p['price_unavailable']]
+    has_unpriced = len(unpriced_positions) > 0
+
+    if not active_positions:
+        total_current_value = Decimal('0')
+        total_unrealized_pnl = Decimal('0')
+        total_unrealized_pnl_pct = Decimal('0')
+    elif priced_positions:
+        priced_cost = sum(Decimal(str(p['cost_basis'])) for p in priced_positions)
+        priced_value = sum(Decimal(str(p['current_value'])) for p in priced_positions)
+        total_current_value = priced_value
+        total_unrealized_pnl = priced_value - priced_cost
+        total_unrealized_pnl_pct = ((total_unrealized_pnl / priced_cost) * Decimal('100')) if priced_cost > 0 else Decimal('0')
+    else:
+        # All active positions have unavailable prices: DO NOT reset to 0, flag None
+        total_current_value = None
+        total_unrealized_pnl = None
+        total_unrealized_pnl_pct = None
+
+    return {
+        'positions': active_positions,
+        'all_positions': all_positions,
+        'summary': {
+            'total_cost': float(round_cur(total_cost, 2)),
+            'total_current_value': float(round_cur(total_current_value, 2)) if total_current_value is not None else None,
+            'total_unrealized_pnl': float(round_cur(total_unrealized_pnl, 2)) if total_unrealized_pnl is not None else None,
+            'total_unrealized_pnl_percent': float(round_cur(total_unrealized_pnl_pct, 2)) if total_unrealized_pnl_pct is not None else None,
+            'total_realized_pnl': float(round_cur(total_realized, 2)),
+            'total_dividend': float(round_cur(total_dividend, 2)),
+            'active_assets_count': len(active_positions),
+            'has_unpriced_assets': has_unpriced,
+            'unpriced_assets_count': len(unpriced_positions)
+        }
+    }
+
+def format_currency(val, currency='TRY'):
+    """Consistent currency formatting with thousand commas and two decimals (e.g. 12,450.75 TL)."""
+    if val is None:
+        return '—'
+    d = to_decimal(val)
+    formatted = f"{float(d):,.2f}"
+    return f"{formatted} {currency}"
+

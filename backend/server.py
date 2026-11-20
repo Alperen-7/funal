@@ -73,6 +73,24 @@ class MyTakipHandler(SimpleHTTPRequestHandler):
             self.send_json({'error': 'Internal Server Error'}, status=500)
 
     def do_POST(self):
+        clean_path = urllib.parse.urlparse(self.path).path
+        if clean_path == '/api/portfolio/pnl':
+            try:
+                body = self.read_request_body()
+                payload = json.loads(body.decode('utf-8')) if body else {}
+                trades = payload.get('trades', payload.get('transactions', []))
+                quotes = payload.get('quotes', {})
+                usd_rate = payload.get('usd_try_rate')
+                if not quotes and payload.get('fetch_live', True):
+                    syms = list(set(portfolio_engine.clean_bist_symbol(t.get('symbol')) for t in trades if t.get('symbol')))
+                    if syms:
+                        quotes = self.fetch_batch_quotes(syms)
+                result = portfolio_engine.calculate_portfolio_pnl(trades, quotes, usd_rate)
+                self.send_json(result)
+                return
+            except Exception as e:
+                self.send_json({'error': str(e)}, status=400)
+                return
         self.handle_mobile_api()
 
     def do_DELETE(self):
@@ -112,6 +130,16 @@ class MyTakipHandler(SimpleHTTPRequestHandler):
 
                 force_refresh = bool(params.get('_t'))
                 data = self.fetch_market_data(symbol, force_refresh=force_refresh)
+                self.send_json(data)
+                return
+
+            if clean_path == '/api/portfolio/pnl':
+                params = urllib.parse.parse_qs(parsed.query)
+                trades_json = params.get('trades', [''])[0]
+                trades = json.loads(trades_json) if trades_json else []
+                symbols = list(set(portfolio_engine.clean_bist_symbol(t.get('symbol')) for t in trades if t.get('symbol')))
+                quotes = self.fetch_batch_quotes(symbols) if symbols else {}
+                data = portfolio_engine.calculate_portfolio_pnl(trades, quotes)
                 self.send_json(data)
                 return
 
@@ -238,6 +266,33 @@ def wsgi_app(environ, start_response):
             ('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0'),
             ('Pragma', 'no-cache'),
             ('Expires', '0')
+        ])
+        return [body]
+
+    if clean_path == '/api/portfolio/pnl':
+        try:
+            length = int(environ.get('CONTENT_LENGTH') or 0)
+        except ValueError:
+            length = 0
+        raw_body = environ['wsgi.input'].read(length) if length > 0 else b''
+        payload = json.loads(raw_body.decode('utf-8')) if raw_body else {}
+        trades = payload.get('trades', payload.get('transactions', []))
+        quotes = payload.get('quotes', {})
+        usd_rate = payload.get('usd_try_rate')
+        if not quotes and payload.get('fetch_live', True):
+            syms = list(set(portfolio_engine.clean_bist_symbol(t.get('symbol')) for t in trades if t.get('symbol')))
+            if syms:
+                inst = MyTakipHandler.__new__(MyTakipHandler)
+                quotes = inst.fetch_batch_quotes(syms)
+        result = portfolio_engine.calculate_portfolio_pnl(trades, quotes, usd_rate)
+        body = json.dumps(result, ensure_ascii=False).encode('utf-8')
+        start_response('200 OK', [
+            ('Content-Type', 'application/json; charset=utf-8'),
+            ('Access-Control-Allow-Origin', '*'),
+            ('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0'),
+            ('Pragma', 'no-cache'),
+            ('Expires', '0'),
+            ('Content-Length', str(len(body)))
         ])
         return [body]
 
